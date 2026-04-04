@@ -3241,6 +3241,14 @@ class HermesCLI:
         if not silent:
             print("(^_^)v New session started!")
 
+        self._enqueue_startup_voice_command()
+
+    def _enqueue_startup_voice_command(self) -> None:
+        """Queue startup voice activation when interactive voice defaults apply."""
+        startup_voice_command = self._get_startup_voice_command()
+        if startup_voice_command and hasattr(self, "_pending_input"):
+            self._pending_input.put(startup_voice_command)
+
     def _handle_resume_command(self, cmd_original: str) -> None:
         """Handle /resume <session_id_or_title> — switch to a previous session mid-conversation."""
         parts = cmd_original.split(None, 1)
@@ -7977,9 +7985,7 @@ class HermesCLI:
         process_thread = threading.Thread(target=process_loop, daemon=True)
         process_thread.start()
 
-        startup_voice_command = self._get_startup_voice_command()
-        if startup_voice_command:
-            self._pending_input.put(startup_voice_command)
+        self._enqueue_startup_voice_command()
         
         # Register atexit cleanup so resources are freed even on unexpected exit
         atexit.register(_run_cleanup)

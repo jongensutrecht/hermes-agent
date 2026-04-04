@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib
 import os
+import queue
 import sys
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from hermes_state import SessionDB
 from tools.todo_tool import TodoStore
@@ -119,8 +122,8 @@ def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
             return _cli_mod.HermesCLI(**kwargs)
 
 
-def _prepare_cli_with_active_session(tmp_path):
-    cli = _make_cli()
+def _prepare_cli_with_active_session(tmp_path, config_overrides=None):
+    cli = _make_cli(config_overrides=config_overrides)
     cli._session_db = SessionDB(db_path=tmp_path / "state.db")
     cli._session_db.create_session(session_id=cli.session_id, source="cli", model=cli.model)
 
@@ -169,6 +172,35 @@ def test_reset_command_is_alias_for_new_session(tmp_path):
     assert cli.session_id != old_session_id
     assert cli._session_db.get_session(old_session_id)["end_reason"] == "new_session"
     assert cli._session_db.get_session(cli.session_id) is not None
+
+
+def test_reset_queues_voice_start_when_voice_default_is_enabled_and_currently_off(tmp_path):
+    cli = _prepare_cli_with_active_session(
+        tmp_path,
+        config_overrides={"voice": {"enabled": True, "auto_tts": True}},
+    )
+    cli._voice_mode = False
+    cli._voice_tts = False
+
+    cli.process_command("/reset")
+
+    assert cli._pending_input.get_nowait() == "/voice on"
+    with pytest.raises(queue.Empty):
+        cli._pending_input.get_nowait()
+
+
+def test_reset_does_not_requeue_voice_start_when_voice_is_already_on(tmp_path):
+    cli = _prepare_cli_with_active_session(
+        tmp_path,
+        config_overrides={"voice": {"enabled": True, "auto_tts": True}},
+    )
+    cli._voice_mode = True
+    cli._voice_tts = True
+
+    cli.process_command("/reset")
+
+    with pytest.raises(queue.Empty):
+        cli._pending_input.get_nowait()
 
 
 def test_clear_command_starts_new_session_before_redrawing(tmp_path):
