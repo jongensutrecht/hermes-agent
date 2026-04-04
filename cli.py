@@ -4177,23 +4177,17 @@ class HermesCLI:
         elif canonical == "history":
             self.show_history()
         elif canonical == "model":
-            # /model [name] — switch model mid-session or show cycle list
+            # /model [name] — switch model. No args = cycle to next.
             parts = cmd_original.split(maxsplit=1)
             if len(parts) > 1 and parts[1].strip():
                 new_model = parts[1].strip()
                 self.model = new_model
                 self.agent = None
                 self._active_agent_route_signature = None
-                _cprint(f"  ⚕ Model switched to: {new_model}")
+                _cprint(f"  ⚕ → {new_model}")
             else:
-                cycle = self._get_model_cycle()
-                current = self.model
-                _cprint(f"  Current: {current}")
-                _cprint(f"  Cycle (Esc+M to switch):")
-                for i, m in enumerate(cycle):
-                    marker = " →" if m == current else "  "
-                    _cprint(f"  {marker} {m}")
-                _cprint(f"\n  Usage: /model <name> to switch directly")
+                new_model = self._cycle_model(direction=1)
+                _cprint(f"  ⚕ → {new_model}")
         elif canonical == "think":
             # /think [level] — set or cycle reasoning effort
             parts = cmd_original.split(maxsplit=1)
