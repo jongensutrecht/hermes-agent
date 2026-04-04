@@ -614,6 +614,30 @@ class GatewayRunner:
             chat_id for chat_id, mode in self._voice_mode.items() if mode == "off"
         )
 
+    def _apply_voice_reply_prompt(self, message_text: str, event: MessageEvent) -> str:
+        """Prefix spoken-reply requests with a hard brevity instruction."""
+        if not message_text:
+            return message_text
+
+        chat_id = str(getattr(event.source, "chat_id", "") or "")
+        mode = self._voice_mode.get(chat_id, "off")
+        wants_spoken_reply = (
+            mode == "all"
+            or (
+                mode == "voice_only"
+                and event.message_type in (MessageType.VOICE, MessageType.AUDIO)
+            )
+        )
+        if not wants_spoken_reply:
+            return message_text
+
+        prefix = (
+            "[Voice reply active — keep the answer very short for speech output: "
+            "normally 1-2 short sentences, no bullets, no markdown, no code blocks, "
+            "no recap. Only go longer if the user explicitly asks for detail.] "
+        )
+        return f"{prefix}{message_text}"
+
     # -----------------------------------------------------------------
 
     def _flush_memories_for_session(
@@ -2686,6 +2710,8 @@ class GatewayRunner:
                         message_text = _ctx_result.message
                 except Exception as exc:
                     logger.debug("@ context reference expansion failed: %s", exc)
+
+            message_text = self._apply_voice_reply_prompt(message_text, event)
 
             # Run the agent
             agent_result = await self._run_agent(

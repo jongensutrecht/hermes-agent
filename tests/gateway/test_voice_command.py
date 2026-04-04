@@ -199,6 +199,39 @@ class TestHandleVoiceCommand:
 # Auto voice reply decision logic
 # =====================================================================
 
+class TestVoiceReplyPrompt:
+
+    @pytest.fixture
+    def runner(self, tmp_path):
+        return _make_runner(tmp_path)
+
+    def test_text_chat_in_tts_mode_gets_brief_voice_prefix(self, runner):
+        runner._voice_mode["123"] = "all"
+        event = _make_event("Leg uit wat DNS is")
+
+        result = runner._apply_voice_reply_prompt("Leg uit wat DNS is", event)
+
+        assert result.startswith("[Voice reply active")
+        assert result.endswith("Leg uit wat DNS is")
+
+    def test_voice_only_mode_skips_prefix_for_text_messages(self, runner):
+        runner._voice_mode["123"] = "voice_only"
+        event = _make_event("Leg uit wat DNS is", message_type=MessageType.TEXT)
+
+        result = runner._apply_voice_reply_prompt("Leg uit wat DNS is", event)
+
+        assert result == "Leg uit wat DNS is"
+
+    def test_voice_only_mode_adds_prefix_for_voice_messages(self, runner):
+        runner._voice_mode["123"] = "voice_only"
+        event = _make_event("Transcript", message_type=MessageType.VOICE)
+
+        result = runner._apply_voice_reply_prompt("Transcript", event)
+
+        assert result.startswith("[Voice reply active")
+        assert result.endswith("Transcript")
+
+
 class TestAutoVoiceReply:
     """Test the real _should_send_voice_reply method on GatewayRunner.
 
