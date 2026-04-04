@@ -6950,6 +6950,13 @@ class HermesCLI:
             """Ctrl+Enter (c-j) inserts a newline. Most terminals send c-j for Ctrl+Enter."""
             event.current_buffer.insert_text('\n')
 
+        @kb.add('escape', '\t')
+        def handle_alt_tab(event):
+            """Alt+Tab: cycle reasoning effort level (shown in footer)."""
+            new_level = cli_ref._cycle_reasoning_effort(direction=1)
+            _cprint(f"\r{_DIM}🧠 {new_level}{_RST}")
+            event.app.invalidate()
+
         @kb.add('tab', eager=True)
         def handle_tab(event):
             """Tab: accept completion, auto-suggestion, or start completions.
