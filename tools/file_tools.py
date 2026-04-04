@@ -412,6 +412,14 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
             except OSError:
                 pass  # Can't stat — skip tracking for this entry
 
+            # Record read content for anti-regression detection (edit_guard)
+            try:
+                from agent.edit_guard import edit_guard
+                with open(resolved_str, "r") as _eg_f:
+                    edit_guard.record_read(path, _eg_f.read())
+            except Exception:
+                pass  # fail-open
+
         if count >= 4:
             # Hard block: stop returning content to break the loop
             return json.dumps({
@@ -563,11 +571,26 @@ def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
         return json.dumps({"error": sensitive_err}, ensure_ascii=False)
     try:
         stale_warning = _check_file_staleness(path, task_id)
+        # ── Anti-regression check (edit_guard) ────────────────
+        regression_warning = None
+        try:
+            from agent.edit_guard import edit_guard
+            regression_warning = edit_guard.check_reversion(path, content)
+        except Exception:
+            pass  # fail-open
         file_ops = _get_file_ops(task_id)
         result = file_ops.write_file(path, content)
         result_dict = result.to_dict()
         if stale_warning:
             result_dict["_warning"] = stale_warning
+        if regression_warning:
+            result_dict["_regression_warning"] = regression_warning
+        # Record successful write for future regression detection
+        try:
+            from agent.edit_guard import edit_guard
+            edit_guard.record_write(path, content)
+        except Exception:
+            pass  # fail-open
         # Refresh the stored timestamp so consecutive writes by this
         # task don't trigger false staleness warnings.
         _update_read_timestamp(path, task_id)
@@ -627,6 +650,17 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
         if not result_dict.get("error"):
             for _p in _paths_to_check:
                 _update_read_timestamp(_p, task_id)
+            # Record successful patch for regression detection
+            try:
+                from agent.edit_guard import edit_guard
+                for _p in _paths_to_check:
+                    try:
+                        with open(Path(_p).expanduser().resolve(), "r") as _f:
+                            edit_guard.record_write(_p, _f.read())
+                    except Exception:
+                        pass
+            except Exception:
+                pass  # fail-open
         result_json = json.dumps(result_dict, ensure_ascii=False)
         # Hint when old_string not found — saves iterations where the agent
         # retries with stale content instead of re-reading the file.

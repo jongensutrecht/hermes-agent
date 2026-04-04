@@ -6797,6 +6797,12 @@ class AIAgent:
                 break
             
             api_call_count += 1
+            # Update edit_guard turn counter for regression detection
+            try:
+                from agent.edit_guard import edit_guard
+                edit_guard.set_turn(api_call_count)
+            except Exception:
+                pass
             if not self.iteration_budget.consume():
                 if not self.quiet_mode:
                     self._safe_print(f"\n⚠️  Iteration budget exhausted ({self.iteration_budget.used}/{self.iteration_budget.max_total} iterations used)")
@@ -8399,6 +8405,19 @@ class AIAgent:
                         # _flush_messages_to_session_db writes compressed messages
                         # to the new session (see preflight compression comment).
                         conversation_history = None
+                        # Inject edit history reminder after compression so the
+                        # model knows which files it already edited (anti-regression)
+                        try:
+                            from agent.edit_guard import edit_guard
+                            _edit_summary = edit_guard.get_edited_files_summary()
+                            if _edit_summary and messages:
+                                # Find the compaction summary message and append
+                                for _m in messages:
+                                    if isinstance(_m, dict) and "[CONTEXT COMPACTION]" in str(_m.get("content", "")):
+                                        _m["content"] = _m["content"] + "\n\n" + _edit_summary
+                                        break
+                        except Exception:
+                            pass  # fail-open
                     
                     # Save session log incrementally (so progress is visible even if interrupted)
                     self._session_messages = messages

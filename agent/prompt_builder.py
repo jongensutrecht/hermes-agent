@@ -182,7 +182,12 @@ TOOL_USE_ENFORCEMENT_GUIDANCE = (
     "the task, use them instead of telling the user what you would do.\n"
     "Every response should either (a) contain tool calls that make progress, or "
     "(b) deliver a final result to the user. Responses that only describe intentions "
-    "without acting are not acceptable."
+    "without acting are not acceptable.\n"
+    "# Anti-regression discipline\n"
+    "Before writing or patching a file, ALWAYS read it first to see its current state. "
+    "Do not overwrite files from memory — your memory of file contents degrades over long sessions. "
+    "If you already edited a file earlier in this session, re-read it before making further changes "
+    "to avoid reverting your own fixes. The system will warn you if a write looks like a regression."
 )
 
 # Model name substrings that trigger tool-use enforcement guidance.
