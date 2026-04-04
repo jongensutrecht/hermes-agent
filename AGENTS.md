@@ -8,6 +8,12 @@ Instructions for AI coding assistants and developers working on the hermes-agent
 source venv/bin/activate  # ALWAYS activate before running Python
 ```
 
+## Execution Continuity
+
+If there is an active task, keep going autonomously from analysis -> fix -> verify until the task is done, blocked with evidence, or the user explicitly interrupts.
+Do not stop for unnecessary progress handoffs or "next step" summaries when the required repo work can still be completed in the current session.
+
+
 ## Project Structure
 
 ```

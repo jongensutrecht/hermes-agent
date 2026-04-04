@@ -160,6 +160,21 @@ class TestSingleQueryState:
         assert hasattr(cli, "_pending_input")
 
 
+class TestVoiceStartupConfig:
+    def test_startup_voice_command_disabled_by_default(self):
+        cli = _make_cli(config_overrides={"voice": {"enabled": False, "auto_tts": False}})
+        assert cli._get_startup_voice_command() is None
+
+    def test_startup_voice_command_enables_voice_when_configured(self):
+        cli = _make_cli(config_overrides={"voice": {"enabled": True, "auto_tts": True}})
+        assert cli._get_startup_voice_command() == "/voice on"
+
+    def test_startup_voice_command_skips_when_voice_already_on(self):
+        cli = _make_cli(config_overrides={"voice": {"enabled": True, "auto_tts": True}})
+        cli._voice_mode = True
+        assert cli._get_startup_voice_command() is None
+
+
 class TestHistoryDisplay:
     def test_history_numbers_only_visible_messages_and_summarizes_tools(self, capsys):
         cli = _make_cli()

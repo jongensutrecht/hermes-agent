@@ -5568,6 +5568,15 @@ class HermesCLI:
         finally:
             self._voice_tts_done.set()
 
+    def _get_startup_voice_command(self):
+        """Return the startup voice command for interactive CLI sessions, if any."""
+        voice_config = self.config.get("voice", {}) if isinstance(self.config, dict) else {}
+        if not isinstance(voice_config, dict):
+            return None
+        if voice_config.get("enabled", False) and not self._voice_mode:
+            return "/voice on"
+        return None
+
     def _handle_voice_command(self, command: str):
         """Handle /voice [on|off|tts|status] command."""
         parts = command.strip().split(maxsplit=1)
@@ -7967,6 +7976,10 @@ class HermesCLI:
         # Start processing thread
         process_thread = threading.Thread(target=process_loop, daemon=True)
         process_thread.start()
+
+        startup_voice_command = self._get_startup_voice_command()
+        if startup_voice_command:
+            self._pending_input.put(startup_voice_command)
         
         # Register atexit cleanup so resources are freed even on unexpected exit
         atexit.register(_run_cleanup)
