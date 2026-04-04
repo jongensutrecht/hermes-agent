@@ -1412,6 +1412,14 @@ class HermesCLI:
     # ── Reasoning effort levels for cycling ────────────────────────
     _REASONING_LEVELS = ("xhigh", "high", "medium", "low", "minimal", "none")
 
+    # ── Agent mode for workflow control ───────────────────────────
+    # ask: answer questions, minimal tool use
+    # analyse: read-only inspection, no writes
+    # plan: create plans, no execution
+    # build: full execution with all tools (default)
+    _AGENT_MODES = ("build", "ask", "analyse", "plan")
+    _agent_mode: str = "build"
+
     # ── Model quick-switch list ───────────────────────────────────
     # Configurable via config.yaml: agent.model_cycle
     # Falls back to a sensible default based on authenticated providers.
@@ -1489,6 +1497,47 @@ class HermesCLI:
             agent.reasoning_config = self.reasoning_config
         return new_level
 
+    def _cycle_agent_mode(self, direction: int = 1) -> str:
+        """Cycle agent mode (build/ask/analyse/plan). Returns new mode."""
+        modes = self._AGENT_MODES
+        try:
+            idx = modes.index(self._agent_mode)
+        except ValueError:
+            idx = 0
+        new_idx = (idx + direction) % len(modes)
+        self._agent_mode = modes[new_idx]
+        # Invalidate system prompt so mode instruction takes effect
+        agent = getattr(self, "agent", None)
+        if agent and hasattr(agent, "_invalidate_system_prompt"):
+            agent._invalidate_system_prompt()
+        return self._agent_mode
+
+    def _get_agent_mode_instruction(self) -> str:
+        """Return system prompt fragment for the current agent mode."""
+        mode = self._agent_mode
+        if mode == "build":
+            return ""  # no restriction
+        if mode == "ask":
+            return (
+                "\n\n[AGENT MODE: ASK] You are in ask mode. Answer questions and explain. "
+                "Minimize tool use — only use tools when the user explicitly asks you to look something up. "
+                "Do not modify any files or run commands that change state.\n"
+            )
+        if mode == "analyse":
+            return (
+                "\n\n[AGENT MODE: ANALYSE] You are in analyse mode. You may read files, search, "
+                "and inspect — but do NOT write, patch, create, or delete any files. "
+                "Do NOT run commands that modify state (git commit, rm, mv, etc). Read-only.\n"
+            )
+        if mode == "plan":
+            return (
+                "\n\n[AGENT MODE: PLAN] You are in plan mode. Analyse the situation and create "
+                "a detailed plan of action. You may read and inspect freely. "
+                "Do NOT execute the plan — no writes, no patches, no destructive commands. "
+                "Output the plan as structured steps.\n"
+            )
+        return ""
+
     def _get_status_bar_snapshot(self) -> Dict[str, Any]:
         model_name = self.model or "unknown"
         model_short = model_name.split("/")[-1] if "/" in model_name else model_name
@@ -1502,6 +1551,7 @@ class HermesCLI:
             "model_name": model_name,
             "model_short": model_short,
             "reasoning_label": self._get_current_reasoning_label(),
+            "agent_mode": self._agent_mode,
             "duration": format_duration_compact(elapsed_seconds),
             "context_tokens": 0,
             "context_length": None,
@@ -1638,6 +1688,8 @@ class HermesCLI:
 
             reasoning_label = snapshot.get("reasoning_label", "")
             reasoning_short = {"xhigh": "🧠xhi", "high": "🧠hi", "medium": "🧠med", "low": "🧠lo", "minimal": "🧠min", "none": "🧠off"}.get(reasoning_label, "")
+            agent_mode = snapshot.get("agent_mode", "build")
+            mode_short = {"build": "⚡build", "ask": "💬ask", "analyse": "🔍analyse", "plan": "📋plan"}.get(agent_mode, agent_mode)
 
             if width < 52:
                 frags = [
@@ -1656,6 +1708,8 @@ class HermesCLI:
                         ("class:status-bar-strong", snapshot["model_short"]),
                         ("class:status-bar-dim", " · "),
                         ("class:status-bar-dim", reasoning_short),
+                        ("class:status-bar-dim", " · "),
+                        ("class:status-bar-strong" if agent_mode != "build" else "class:status-bar-dim", mode_short),
                         ("class:status-bar-dim", " · "),
                         (self._status_bar_context_style(percent), percent_label),
                         ("class:status-bar-dim", " · "),
@@ -1676,6 +1730,8 @@ class HermesCLI:
                         ("class:status-bar-strong", snapshot["model_short"]),
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", reasoning_short),
+                        ("class:status-bar-dim", " │ "),
+                        ("class:status-bar-strong" if agent_mode != "build" else "class:status-bar-dim", mode_short),
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", context_label),
                         ("class:status-bar-dim", " │ "),
@@ -2326,7 +2382,7 @@ class HermesCLI:
                 enabled_toolsets=self.enabled_toolsets,
                 verbose_logging=self.verbose,
                 quiet_mode=not self.verbose,
-                ephemeral_system_prompt=self.system_prompt if self.system_prompt else None,
+                ephemeral_system_prompt=(self.system_prompt or "") + self._get_agent_mode_instruction() or None,
                 prefill_messages=self.prefill_messages or None,
                 reasoning_config=self.reasoning_config,
                 providers_allowed=self._providers_only,
@@ -4205,6 +4261,25 @@ class HermesCLI:
             else:
                 new_level = self._cycle_reasoning_effort(direction=1)
                 _cprint(f"  🧠 Reasoning effort: {new_level}")
+        elif canonical == "mode":
+            # /mode [name] — switch agent mode. No args = cycle to next.
+            parts = cmd_original.split(maxsplit=1)
+            valid_modes = ("build", "ask", "analyse", "plan")
+            if len(parts) > 1 and parts[1].strip():
+                mode = parts[1].strip().lower()
+                if mode in valid_modes:
+                    self._agent_mode = mode
+                    agent = getattr(self, "agent", None)
+                    if agent and hasattr(agent, "_invalidate_system_prompt"):
+                        agent._invalidate_system_prompt()
+                    icons = {"build": "⚡", "ask": "💬", "analyse": "🔍", "plan": "📋"}
+                    _cprint(f"  {icons.get(mode, '')} Mode: {mode}")
+                else:
+                    _cprint(f"  ⚠️  Unknown mode '{mode}'. Valid: {', '.join(valid_modes)}")
+            else:
+                new_mode = self._cycle_agent_mode(direction=1)
+                icons = {"build": "⚡", "ask": "💬", "analyse": "🔍", "plan": "📋"}
+                _cprint(f"  {icons.get(new_mode, '')} Mode: {new_mode}")
         elif canonical == "title":
             parts = cmd_original.split(maxsplit=1)
             if len(parts) > 1:
@@ -7024,6 +7099,14 @@ class HermesCLI:
             """Ctrl+Q: cycle model (shown in footer). Configure via agent.model_cycle in config.yaml."""
             new_model = cli_ref._cycle_model(direction=1)
             _cprint(f"\r{_DIM}⚕ → {new_model}{_RST}")
+            event.app.invalidate()
+
+        @kb.add('c-g')
+        def handle_ctrl_g(event):
+            """Ctrl+G: cycle agent mode (build/ask/analyse/plan)."""
+            new_mode = cli_ref._cycle_agent_mode(direction=1)
+            icons = {"build": "⚡", "ask": "💬", "analyse": "🔍", "plan": "📋"}
+            _cprint(f"\r{_DIM}{icons.get(new_mode, '')} {new_mode}{_RST}")
             event.app.invalidate()
 
         @kb.add('tab', eager=True)
