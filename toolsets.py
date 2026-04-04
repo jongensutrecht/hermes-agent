@@ -489,6 +489,23 @@ def _get_plugin_toolset_names() -> Set[str]:
         return set()
 
 
+# ── Tool Tier Classification (HERMES-002) ─────────────────────────────
+# Core tools are always included in tiered mode.
+# Extended tools are only included in full mode (default) or when their
+# toolset is explicitly enabled.
+CORE_TOOLS: frozenset = frozenset({
+    "terminal", "read_file", "write_file", "patch", "search_files",
+    "web_search", "web_extract",
+    "memory", "session_search", "todo", "clarify",
+    "delegate_task", "execute_code",
+    "skill_manage", "skill_view", "skills_list",
+})
+
+# Everything not in CORE_TOOLS is considered extended.
+# Extended tools include: cronjob, process, send_message, text_to_speech,
+# browser_*, vision_*, ha_*, rl_*, and any plugin/MCP tools.
+
+
 def get_all_toolsets() -> Dict[str, Dict[str, Any]]:
     """
     Get all available toolsets with their definitions.

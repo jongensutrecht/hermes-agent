@@ -1,0 +1,99 @@
+api_version: story-os/v1
+story_id: HERMES-003
+title: Prompt Cache Break Detection
+type: runtime
+priority: P0
+risk_class: low
+review_policy: green
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: Hermes heeft Anthropic prompt caching maar detecteert niet wanneer de cache onverwacht breekt, waardoor token-kosten onzichtbaar stijgen.
+  must_not_drift_from: Observability toevoegen aan bestaande caching; geen caching-strategie wijzigen.
+
+goal: >
+  Voeg prompt cache break detectie toe aan agent/prompt_caching.py. Fingerprint elke
+  prompt-component apart (system, tools, messages). Detecteer wanneer cache_read_input_tokens
+  onverwacht laag zijn terwijl de fingerprints stabiel zijn. Log een waarschuwing
+  zodat de user weet dat caching niet werkt.
+
+why: >
+  Anthropic cache creation kost 25% meer dan reguliere input tokens. Als de cache
+  onverwacht breekt (bijv. door tool-volgorde wijziging of message formatting) betaalt
+  de user cache creation prijs zonder cache benefit. Detectie maakt dit zichtbaar.
+
+depends_on: []
+
+scope:
+  in:
+    - Fingerprinting van prompt components (FNV-1a hash of sha256 van system, tools, messages)
+    - TrackedPromptState dataclass met component hashes + vorige cache_read_tokens
+    - Break detectie logica: als fingerprints stabiel maar cache_read_tokens > 50% gedaald
+    - Logging: WARNING level bij unexpected break, DEBUG bij expected break (prompt changed)
+    - Optioneel: stats tracking (cache_hits, cache_misses, breaks) per sessie
+  out:
+    - Geen wijziging aan caching strategie (system_and_3 blijft)
+    - Geen UI/display output
+    - Geen wijziging aan API call flow
+
+paths:
+  expected_read:
+    - planning/MASTER_PLAN.md
+    - agent/prompt_caching.py
+    - agent/usage_pricing.py
+  expected_write:
+    - agent/prompt_caching.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - agent/prompt_caching.py
+
+risk_paths: []
+
+protected_invariants:
+  - Bestaande cache_control breakpoint plaatsing mag niet veranderen
+  - Prompt caching moet werken als detectie-module fouten maakt (fail-open)
+
+write_policy:
+  allow:
+    - agent/prompt_caching.py
+  deny: []
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - python -c "from agent.prompt_caching import TrackedPromptState; print('OK')"
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-003/summary.md
+  manifest_path: execution/proof/HERMES-003/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: Bij stabiele fingerprints + dalende cache_read_tokens logt WARNING
+    - id: F2
+      text: Bij gewijzigde fingerprints + dalende cache_read_tokens logt DEBUG (expected)
+    - id: F3
+      text: Stats tracking telt hits/misses/breaks correct
+  structural:
+    - id: S1
+      text: TrackedPromptState is een pure dataclass zonder side effects
+    - id: S2
+      text: Detectie is fail-open: als het crasht, werkt caching gewoon door
+  proof:
+    - id: P1
+      text: Unit test met mock cache responses voor expected en unexpected breaks
+
+blockers: []

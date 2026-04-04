@@ -46,12 +46,22 @@ def check_delegate_requirements() -> bool:
 
 
 def _build_child_system_prompt(goal: str, context: Optional[str] = None) -> str:
-    """Build a focused system prompt for a child agent."""
+    """Build a focused system prompt for a child agent.
+
+    If the goal contains structured TaskPacket sections (OBJECTIVE: + SCOPE:),
+    preserves that structure. Otherwise uses the default YOUR TASK format.
+    """
     parts = [
         "You are a focused subagent working on a specific delegated task.",
         "",
-        f"YOUR TASK:\n{goal}",
     ]
+
+    # TaskPacket-formatted goals have explicit structure — use directly
+    if "OBJECTIVE:" in goal and "SCOPE:" in goal:
+        parts.append(goal)
+    else:
+        parts.append(f"YOUR TASK:\n{goal}")
+
     if context and context.strip():
         parts.append(f"\nCONTEXT:\n{context}")
     parts.append(
@@ -407,13 +417,18 @@ def delegate_task(
     tasks: Optional[List[Dict[str, Any]]] = None,
     max_iterations: Optional[int] = None,
     parent_agent=None,
+    packet=None,
 ) -> str:
     """
     Spawn one or more child agents to handle delegated tasks.
 
-    Supports two modes:
+    Supports three modes:
       - Single: provide goal (+ optional context, toolsets)
       - Batch:  provide tasks array [{goal, context, toolsets}, ...]
+      - Packet: provide packet=TaskPacket (HERMES-007) — structured delegation
+
+    When packet is provided, it takes precedence over goal/context/toolsets.
+    The packet is validated before use; invalid packets return an error.
 
     Returns JSON with results array, one entry per task.
     """
@@ -445,13 +460,32 @@ def delegate_task(
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
 
+    # ── TaskPacket support (HERMES-007) ─────────────────────────────
+    # If a TaskPacket is provided, validate it and convert to goal/context.
+    if packet is not None:
+        try:
+            from agent.task_packet import TaskPacket, validate_packet
+            if isinstance(packet, TaskPacket):
+                errors = validate_packet(packet)
+                if errors:
+                    return json.dumps({"error": f"Invalid TaskPacket: {'; '.join(errors)}"})
+                kwargs = packet.to_delegate_kwargs()
+                goal = kwargs.get("goal", goal)
+                context = kwargs.get("context", context)
+                toolsets = kwargs.get("toolsets", toolsets)
+                max_iterations = kwargs.get("max_iterations", max_iterations) or effective_max_iter
+            else:
+                return json.dumps({"error": f"packet must be a TaskPacket, got {type(packet).__name__}"})
+        except ImportError:
+            return json.dumps({"error": "agent.task_packet not available"})
+
     # Normalize to task list
     if tasks and isinstance(tasks, list):
         task_list = tasks[:MAX_CONCURRENT_CHILDREN]
     elif goal and isinstance(goal, str) and goal.strip():
         task_list = [{"goal": goal, "context": context, "toolsets": toolsets}]
     else:
-        return json.dumps({"error": "Provide either 'goal' (single task) or 'tasks' (batch)."})
+        return json.dumps({"error": "Provide either 'goal', 'tasks', or 'packet'."})
 
     if not task_list:
         return json.dumps({"error": "No tasks provided."})

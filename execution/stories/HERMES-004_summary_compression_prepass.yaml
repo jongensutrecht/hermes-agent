@@ -1,0 +1,99 @@
+api_version: story-os/v1
+story_id: HERMES-004
+title: Summary Compression Pre-pass met Priority Tiers
+type: runtime
+priority: P1
+risk_class: low
+review_policy: green
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: LLM-gebaseerde context compressie is duur en traag. Een goedkope pre-pass met priority-based line selectie reduceert wat naar de LLM gaat.
+  must_not_drift_from: Complement op bestaande ContextCompressor; niet vervangen.
+
+goal: >
+  Voeg een budget-aware summary compression pre-pass toe die zonder LLM-call
+  tekst comprimeert via priority tiers: scope/current-work (P0) > headers (P1) >
+  bullets (P2) > filler (P3). Gebruik voor subagent context, cron-job prompts,
+  en als pre-pass voor de bestaande LLM-compressor.
+
+why: >
+  Subagent context en cron-job prompts worden nu ongecomprimeerd meegegeven.
+  Een goedkope pre-pass scheelt ~60% tokens zonder LLM-kosten.
+
+depends_on: []
+
+scope:
+  in:
+    - Nieuw module agent/summary_compression.py
+    - CompressionBudget dataclass (max_chars, max_lines, max_line_chars)
+    - Priority tiers voor lijnbelangrijkheid
+    - Greedy line selection binnen budget
+    - Integratie als pre-pass in context_compressor.py
+    - Standalone functie voor subagent/cron context
+  out:
+    - Geen wijziging aan LLM-summarization logica
+    - Geen wijziging aan prompt builder
+
+paths:
+  expected_read:
+    - planning/MASTER_PLAN.md
+    - agent/context_compressor.py
+  expected_write:
+    - agent/summary_compression.py
+    - agent/context_compressor.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - agent/context_compressor.py
+
+risk_paths: []
+
+protected_invariants:
+  - Bestaande context compressor flow mag niet breken
+  - Pre-pass is optioneel en bypass-baar
+
+write_policy:
+  allow:
+    - agent/summary_compression.py
+    - agent/context_compressor.py
+  deny: []
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - "python -c \"from agent.summary_compression import compress_summary; print('OK')\""
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-004/summary.md
+  manifest_path: execution/proof/HERMES-004/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: compress_summary reduceert 100-line tekst tot <30 lines met budget defaults
+    - id: F2
+      text: Priority 0 lijnen (scope, current work) worden altijd behouden
+    - id: F3
+      text: "N lines omitted" notice wordt toegevoegd bij truncatie
+  structural:
+    - id: S1
+      text: Geen LLM calls in summary_compression.py
+    - id: S2
+      text: Pure functie, geen state
+  proof:
+    - id: P1
+      text: Unit test met bekende input → verwachte output bij verschillende budgets
+
+blockers: []

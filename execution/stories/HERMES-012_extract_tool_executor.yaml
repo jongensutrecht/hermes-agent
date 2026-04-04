@@ -1,0 +1,114 @@
+api_version: story-os/v1
+story_id: HERMES-012
+title: Extract ToolExecutor module uit run_agent.py
+type: refactor
+priority: P1
+risk_class: medium
+review_policy: orange
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: >
+    Tool executie logica (sequential + concurrent dispatch, recovery hooks,
+    ~700 LOC: regels 5612-6281) is verweven met de agent loop.
+    Onmogelijk te testen of aanpassen zonder de hele agent te laden.
+  must_not_drift_from: Alleen extractie; geen nieuw tool execution gedrag.
+
+goal: >
+  Verplaats tool execution logica naar agent/tool_executor.py:
+  sequential dispatch, concurrent dispatch (ThreadPoolExecutor),
+  recovery hooks, en invoke_tool wrapper. run_agent.py delegeert
+  naar ToolExecutor.
+
+why: >
+  Tool executie is de meest performance-kritieke code in Hermes.
+  Geïsoleerd testen (parallelisatie, recovery, interrupt propagation)
+  is essentieel voor betrouwbaarheid.
+
+depends_on: []
+
+scope:
+  in:
+    - agent/tool_executor.py (NIEUW): ToolExecutor class
+    - run_agent.py: vervang inline tool execution door delegatie
+    - Methods te verplaatsen:
+      - _execute_tool_calls() (regels 5612-5628, dispatcher)
+      - _execute_tool_calls_sequential() (regels 5928-6281, 353 LOC)
+      - _execute_tool_calls_concurrent() (regels 5706-5928, 222 LOC)
+      - _invoke_tool() (regels 5635-5705)
+      - _should_parallelize_tool_batch() (regels 262-303)
+      - _paths_overlap() (regels 323-331)
+  out:
+    - Geen wijziging aan tool definities of toolsets
+    - Geen wijziging aan recovery_recipes.py
+    - Geen wijziging aan individuele tool implementaties
+
+paths:
+  expected_read:
+    - run_agent.py
+    - planning/MASTER_PLAN.md
+  expected_write:
+    - agent/tool_executor.py
+    - run_agent.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - run_agent.py
+
+risk_paths:
+  - run_agent.py (core agent loop)
+
+protected_invariants:
+  - Sequential vs concurrent beslissing identiek
+  - Recovery hooks worden aangeroepen op dezelfde momenten
+  - ThreadPoolExecutor configuratie ongewijzigd
+  - Interrupt propagation naar child agents ongewijzigd
+
+write_policy:
+  allow:
+    - agent/tool_executor.py
+    - run_agent.py
+    - tests/test_tool_executor.py
+  deny:
+    - regressie_docs/**
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - "python -c \"from agent.tool_executor import ToolExecutor; print('OK')\""
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-012/summary.md
+  manifest_path: execution/proof/HERMES-012/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: ToolExecutor.execute() dispatcht correct naar sequential of concurrent
+    - id: F2
+      text: Concurrent execution respecteert MAX_CONCURRENT_CHILDREN limiet
+    - id: F3
+      text: Recovery hook wordt aangeroepen bij tool crash in concurrent path
+  structural:
+    - id: S1
+      text: run_agent.py bevat geen inline tool execution logica meer
+    - id: S2
+      text: agent/tool_executor.py is <=400 LOC
+    - id: S3
+      text: Geen circulaire imports
+  proof:
+    - id: P1
+      text: Bestaande agent tests groen + import test van nieuwe module
+
+blockers: []

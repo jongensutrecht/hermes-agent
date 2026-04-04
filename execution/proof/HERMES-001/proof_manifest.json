@@ -1,0 +1,25 @@
+{
+  "story_id": "HERMES-001",
+  "title": "Recovery Recipes Framework",
+  "status": "done",
+  "files_created": [
+    "agent/recovery_recipes.py"
+  ],
+  "files_modified": [
+    "run_agent.py"
+  ],
+  "tests_passed": [
+    "F1: ProviderTimeout recovery with wait",
+    "F2: Budget exhaustion escalation",
+    "F3: Partial recovery outcome",
+    "S1: No circular imports",
+    "S2: Optional module (fail-open)",
+    "P1: All 7 failure types classified and recovered/escalated",
+    "Classify: 8 classification patterns verified",
+    "Syntax: run_agent.py AST parse OK"
+  ],
+  "invariants_verified": [
+    "Tool execution unaffected when recovery_engine is None",
+    "Max 1 retry per failure_type:tool_name"
+  ]
+}

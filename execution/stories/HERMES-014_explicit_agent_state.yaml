@@ -1,0 +1,119 @@
+api_version: story-os/v1
+story_id: HERMES-014
+title: Explicit AgentState enum voor agent lifecycle
+type: refactor
+priority: P1
+risk_class: medium
+review_policy: orange
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: >
+    Agent completion wordt nu impliciet afgeleid uit 10+ verspreide vlaggen:
+    _interrupt_requested, _fallback_activated, iteration_budget.remaining,
+    finish_reason, _executing_tools, _context_pressure_warned, etc.
+    Maakt debugging en state reasoning onmogelijk.
+  must_not_drift_from: State machine toevoegen; geen agent loop logica wijzigen.
+
+goal: >
+  Introduceer AgentState enum (IDLE, AWAITING_API, EXECUTING_TOOLS,
+  COMPRESSING, INTERRUPTED, BUDGET_EXHAUSTED, COMPLETED, FAILED) en
+  gebruik deze als single source of truth voor loop control.
+  Bestaande vlaggen worden afgeleid van of vervangen door state transitions.
+
+why: >
+  Zonder expliciete state is het onmogelijk om te weten waar de agent
+  zich bevindt bij een crash, timeout of handoff. Elke debug sessie
+  vereist nu het reconstrueren van 10 vlaggen.
+
+depends_on: [HERMES-011, HERMES-012, HERMES-013]
+
+scope:
+  in:
+    - agent/agent_state.py (NIEUW): AgentState enum + StateTracker class
+    - run_agent.py: loop control via state transitions i.p.v. losse vlaggen
+    - State transitions:
+      - IDLE -> AWAITING_API (bij API call start)
+      - AWAITING_API -> EXECUTING_TOOLS (bij tool_calls finish_reason)
+      - AWAITING_API -> COMPLETED (bij stop finish_reason)
+      - EXECUTING_TOOLS -> AWAITING_API (na tool results)
+      - EXECUTING_TOOLS -> COMPRESSING (bij context overflow)
+      - COMPRESSING -> AWAITING_API (na compression)
+      - * -> INTERRUPTED (bij interrupt signal)
+      - * -> BUDGET_EXHAUSTED (bij budget=0)
+      - * -> FAILED (bij onherstelbare fout)
+  out:
+    - Geen wijziging aan tool execution logica
+    - Geen wijziging aan provider fallback
+    - Geen wijziging aan compression logica
+    - Bestaande vlaggen mogen blijven als derived properties (backward compat)
+
+paths:
+  expected_read:
+    - run_agent.py
+    - planning/MASTER_PLAN.md
+  expected_write:
+    - agent/agent_state.py
+    - run_agent.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - run_agent.py
+
+risk_paths:
+  - run_agent.py (loop control wijziging)
+
+protected_invariants:
+  - Agent loop break conditions identiek aan huidige implementatie
+  - Interrupt handling identiek
+  - Budget exhaustion gedrag identiek
+  - Alle bestaande API callers krijgen zelfde resultaten
+
+write_policy:
+  allow:
+    - agent/agent_state.py
+    - run_agent.py
+    - tests/test_agent_state.py
+  deny:
+    - regressie_docs/**
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - "python -c \"from agent.agent_state import AgentState; print(list(AgentState))\""
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-014/summary.md
+  manifest_path: execution/proof/HERMES-014/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: State transitions volgen het gedefinieerde schema (geen illegale overgangen)
+    - id: F2
+      text: Interrupt zet state naar INTERRUPTED vanuit elke andere state
+    - id: F3
+      text: run_conversation() return dict bevat final_state veld
+  structural:
+    - id: S1
+      text: AgentState is een stdlib Enum, geen externe dependency
+    - id: S2
+      text: agent/agent_state.py is <=100 LOC
+    - id: S3
+      text: Loop control in run_agent.py checkt state i.p.v. losse vlaggen
+  proof:
+    - id: P1
+      text: Unit test toont alle geldige transitions + rejection van illegale
+
+blockers: []

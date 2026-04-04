@@ -1,0 +1,113 @@
+api_version: story-os/v1
+story_id: HERMES-011
+title: Extract ProviderFallback module uit run_agent.py
+type: refactor
+priority: P1
+risk_class: medium
+review_policy: orange
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: >
+    run_agent.py is 9045 LOC met 116 methods. Provider fallback logica
+    (~1000 LOC: regels 3722-4726) is een zelfstandige concern die
+    testbaar en leesbaar moet zijn buiten de monoliet.
+  must_not_drift_from: Alleen extractie; geen nieuw fallback-gedrag toevoegen.
+
+goal: >
+  Verplaats alle provider fallback logica naar agent/provider_fallback.py:
+  fallback chain management, credential refresh (Codex/Nous/Anthropic),
+  primary runtime backup/restore, en fallback activatie. run_agent.py
+  delegeert naar deze module.
+
+why: >
+  Fallback logica is onmogelijk te unit-testen in een 9K LOC class.
+  Extractie maakt het testbaar, leesbaar en onafhankelijk aanpasbaar.
+
+depends_on: []
+
+scope:
+  in:
+    - agent/provider_fallback.py (NIEUW): ProviderFallback class
+    - run_agent.py: vervang inline fallback door delegatie naar ProviderFallback
+    - Methods te verplaatsen:
+      - _try_activate_fallback() (regels 4542-4651)
+      - _restore_primary_runtime() (regels 4655-4726)
+      - _try_refresh_codex_client_credentials() (regels 3722-3750)
+      - _try_refresh_nous_client_credentials() (regels 3751-3785)
+      - _try_refresh_anthropic_client_credentials() (regels 3786-3823)
+      - _try_activate_credential_pool() (regels 3867-3920)
+  out:
+    - Geen nieuw fallback-gedrag
+    - Geen wijziging aan API call flow
+    - Geen wijziging aan andere modules
+
+paths:
+  expected_read:
+    - run_agent.py
+    - planning/MASTER_PLAN.md
+  expected_write:
+    - agent/provider_fallback.py
+    - run_agent.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - run_agent.py
+
+risk_paths:
+  - run_agent.py (core agent loop)
+
+protected_invariants:
+  - Fallback activatie gedrag identiek aan huidige implementatie
+  - Credential refresh volgorde ongewijzigd
+  - Primary runtime restore na elke turn ongewijzigd
+  - Alle bestaande tests ongewijzigd groen
+
+write_policy:
+  allow:
+    - agent/provider_fallback.py
+    - run_agent.py
+    - tests/test_provider_fallback.py
+  deny:
+    - regressie_docs/**
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - "python -c \"from agent.provider_fallback import ProviderFallback; print('OK')\""
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-011/summary.md
+  manifest_path: execution/proof/HERMES-011/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: ProviderFallback.try_activate() geeft True bij beschikbare fallback, False als chain uitgeput
+    - id: F2
+      text: ProviderFallback.restore_primary() herstelt originele client/model/provider
+    - id: F3
+      text: Credential refresh per provider type werkt via ProviderFallback
+  structural:
+    - id: S1
+      text: run_agent.py bevat geen inline fallback logica meer (alleen delegatie)
+    - id: S2
+      text: agent/provider_fallback.py is <=300 LOC
+    - id: S3
+      text: Geen circulaire imports tussen provider_fallback en run_agent
+  proof:
+    - id: P1
+      text: Bestaande agent tests groen + import test van nieuwe module
+
+blockers: []

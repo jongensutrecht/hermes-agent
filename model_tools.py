@@ -235,6 +235,7 @@ def get_tool_definitions(
     enabled_toolsets: List[str] = None,
     disabled_toolsets: List[str] = None,
     quiet_mode: bool = False,
+    tool_loading_mode: str = "full",
 ) -> List[Dict[str, Any]]:
     """
     Get tool definitions for model API calls with toolset-based filtering.
@@ -245,6 +246,9 @@ def get_tool_definitions(
         enabled_toolsets: Only include tools from these toolsets.
         disabled_toolsets: Exclude tools from these toolsets (if enabled_toolsets is None).
         quiet_mode: Suppress status prints.
+        tool_loading_mode: "full" (default, all tools) or "tiered" (core tools only,
+            ~36% token reduction). Extended tools remain callable but their schemas
+            are not sent to the model API, so the model won't discover them.
 
     Returns:
         Filtered list of OpenAI-format tool definitions.
@@ -297,6 +301,18 @@ def get_tool_definitions(
     # all check the tool registry for plugin-provided toolsets.  No bypass
     # needed; plugins respect enabled_toolsets / disabled_toolsets like any
     # other toolset.
+
+    # ── Tiered tool loading (HERMES-002) ──────────────────────────────
+    # In tiered mode, only send core tool schemas to the API.
+    # Extended tools remain callable (handlers exist) but the model won't
+    # discover them — reducing token usage by ~36%.
+    if tool_loading_mode == "tiered":
+        from toolsets import CORE_TOOLS
+        before = len(tools_to_include)
+        tools_to_include = tools_to_include & CORE_TOOLS
+        if not quiet_mode and before != len(tools_to_include):
+            excluded = before - len(tools_to_include)
+            logger.info("Tiered tool loading: %d core tools (excluded %d extended)", len(tools_to_include), excluded)
 
     # Ask the registry for schemas (only returns tools whose check_fn passes)
     filtered_tools = registry.get_definitions(tools_to_include, quiet=quiet_mode)

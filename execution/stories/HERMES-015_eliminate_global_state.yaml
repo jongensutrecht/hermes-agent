@@ -1,0 +1,109 @@
+api_version: story-os/v1
+story_id: HERMES-015
+title: Elimineer global state in model_tools voor delegate_task
+type: refactor
+priority: P0
+risk_class: low
+review_policy: green
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: >
+    delegate_tool.py leest en schrijft model_tools._last_resolved_tool_names
+    als global mutable state, beschermd door try/finally. Dit is fragiel,
+    moeilijk te debuggen bij concurrent children, en verbergt een
+    data-flow dependency achter een side effect.
+  must_not_drift_from: Global state elimineren; geen delegate_task functionaliteit wijzigen.
+
+goal: >
+  Vervang model_tools._last_resolved_tool_names global access in
+  delegate_tool.py door expliciete parameter passing. Parent agent
+  geeft tool_names mee als parameter bij child construction.
+  _build_child_agent() accepteert parent_tool_names als argument.
+
+why: >
+  Global mutable state in concurrent code is een class van bugs die
+  niet reproduceerbaar zijn. Expliciete parameters maken de data-flow
+  zichtbaar en elimineren race conditions.
+
+depends_on: [HERMES-007]
+
+scope:
+  in:
+    - tools/delegate_tool.py:
+      - _build_child_agent() krijgt parent_tool_names parameter
+      - delegate_task() haalt tool_names uit parent_agent, niet uit global
+      - Verwijder _delegate_saved_tool_names hack
+      - Verwijder global state save/restore in try/finally
+    - model_tools.py: _last_resolved_tool_names hoeft niet verwijderd
+      (andere consumers kunnen het nog gebruiken), maar delegate_tool
+      leest het niet meer
+  out:
+    - Geen wijziging aan model_tools.py zelf
+    - Geen wijziging aan run_agent.py
+    - Geen wijziging aan tool definities
+
+paths:
+  expected_read:
+    - tools/delegate_tool.py
+    - planning/MASTER_PLAN.md
+  expected_write:
+    - tools/delegate_tool.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - tools/delegate_tool.py
+  - agent/task_packet.py
+
+risk_paths: []
+
+protected_invariants:
+  - Child agents krijgen dezelfde tool names als nu
+  - Parent agent tool names worden niet gecorrumpeerd door child construction
+  - Batch delegation (tasks array) werkt identiek
+
+write_policy:
+  allow:
+    - tools/delegate_tool.py
+    - tests/test_delegate_global_state.py
+  deny:
+    - regressie_docs/**
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - "python -c \"from tools.delegate_tool import delegate_task; print('OK')\""
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-015/summary.md
+  manifest_path: execution/proof/HERMES-015/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: _build_child_agent(parent_tool_names=[...]) bouwt child met correcte tools
+    - id: F2
+      text: Na batch delegation is model_tools._last_resolved_tool_names NIET gelezen door delegate_tool
+    - id: F3
+      text: Single + batch delegation produceren identieke resultaten als voorheen
+  structural:
+    - id: S1
+      text: delegate_tool.py bevat geen "model_tools._last_resolved_tool_names" reads
+    - id: S2
+      text: Geen _delegate_saved_tool_names attribute meer op child agents
+  proof:
+    - id: P1
+      text: grep op delegate_tool.py toont nul hits voor _last_resolved_tool_names read
+
+blockers: []

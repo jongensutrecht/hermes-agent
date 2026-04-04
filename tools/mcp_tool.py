@@ -1063,6 +1063,23 @@ _mcp_thread: Optional[threading.Thread] = None
 # Protects _mcp_loop, _mcp_thread, _servers, and _stdio_pids.
 _lock = threading.Lock()
 
+# MCP health tracker (HERMES-005): per-server health, fail-open
+try:
+    from agent.mcp_health import McpHealthTracker
+    _mcp_health_tracker = McpHealthTracker()
+except Exception:
+    # Stub that silently accepts all calls
+    class _StubTracker:
+        def register_server(self, *a, **kw): pass
+        def mark_failed(self, *a, **kw): pass
+        def mark_healthy(self, *a, **kw): pass
+        @property
+        def is_degraded(self): return False
+        @property
+        def missing_tools(self): return []
+        def get_degraded_report(self): return {}
+    _mcp_health_tracker = _StubTracker()
+
 # PIDs of stdio MCP server subprocesses.  Tracked so we can force-kill
 # them on shutdown if the graceful cleanup (SDK context-manager teardown)
 # fails or times out.  PIDs are added after connection and removed on
@@ -1902,6 +1919,20 @@ def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
                     f" (command={command})" if command else "",
                     _format_connect_error(result),
                 )
+                # ── MCP health tracking (HERMES-005) ──────────
+                try:
+                    _mcp_health_tracker.mark_failed(
+                        name, error=str(result), recoverable=False,
+                    )
+                except Exception:
+                    pass  # fail-open
+            else:
+                # Server connected OK — register tools and mark healthy
+                try:
+                    tool_names = result if isinstance(result, list) else []
+                    _mcp_health_tracker.register_server(name, tools=tool_names)
+                except Exception:
+                    pass  # fail-open
 
     # Per-server timeouts are handled inside _discover_and_register_server.
     # The outer timeout is generous: 120s total for parallel discovery.

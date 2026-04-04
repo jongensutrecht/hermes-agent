@@ -1,0 +1,108 @@
+api_version: story-os/v1
+story_id: HERMES-016
+title: Activeer MCP health tracking in agent beslissingen
+type: runtime
+priority: P1
+risk_class: low
+review_policy: green
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: >
+    HERMES-005 introduceerde McpHealthTracker met per-server health
+    (HEALTHY/DEGRADED/DEAD), maar niemand leest de data. mark_failed()
+    en mark_healthy() worden aangeroepen, maar is_server_available()
+    en get_degraded_report() worden nergens gebruikt in de agent loop.
+    Het is write-only infrastructure.
+  must_not_drift_from: Health data gebruiken; geen MCP protocol wijzigingen.
+
+goal: >
+  Integreer McpHealthTracker op twee plekken:
+  1. Tool execution: skip DEAD MCP server tools met duidelijke foutmelding
+  2. System prompt: inject degraded server warning zodat het model
+     weet welke tools onbetrouwbaar zijn
+
+why: >
+  Zonder integratie is HERMES-005 dode code. Het model blijft tools
+  aanroepen op DEAD servers, wat tot onnodige retries en token waste leidt.
+
+depends_on: [HERMES-005]
+
+scope:
+  in:
+    - run_agent.py (of agent/tool_executor.py na HERMES-012):
+      - Voor MCP tool invocation: check is_server_available()
+      - Bij DEAD server: return error result zonder invocation
+    - run_agent.py _build_system_prompt():
+      - Bij degraded state: voeg warning toe met get_degraded_report()
+    - agent/mcp_health.py: geen wijzigingen nodig (API is compleet)
+  out:
+    - Geen wijziging aan McpHealthTracker zelf
+    - Geen wijziging aan MCP protocol handling
+    - Geen auto-recovery of auto-reconnect (dat is een aparte story)
+
+paths:
+  expected_read:
+    - agent/mcp_health.py
+    - run_agent.py
+    - planning/MASTER_PLAN.md
+  expected_write:
+    - run_agent.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - agent/mcp_health.py
+  - run_agent.py
+
+risk_paths: []
+
+protected_invariants:
+  - Non-MCP tools ongewijzigd
+  - HEALTHY MCP servers ongewijzigd in gedrag
+  - System prompt structuur niet fundamenteel gewijzigd
+
+write_policy:
+  allow:
+    - run_agent.py
+    - tests/test_mcp_health_integration.py
+  deny:
+    - regressie_docs/**
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - "python -c \"from agent.mcp_health import McpHealthTracker; print('OK')\""
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-016/summary.md
+  manifest_path: execution/proof/HERMES-016/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: Tool call naar DEAD MCP server retourneert foutmelding zonder invocation
+    - id: F2
+      text: System prompt bevat degraded warning wanneer mcp_health.is_degraded == True
+    - id: F3
+      text: HEALTHY server tools worden normaal aangeroepen (geen regressie)
+  structural:
+    - id: S1
+      text: Maximaal 20 LOC toegevoegd aan run_agent.py (of tool_executor.py)
+    - id: S2
+      text: Geen nieuwe imports buiten agent.mcp_health
+  proof:
+    - id: P1
+      text: Test met gesimuleerde DEAD server toont skip + foutmelding
+
+blockers: []

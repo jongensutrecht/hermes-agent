@@ -1,0 +1,115 @@
+api_version: story-os/v1
+story_id: HERMES-013
+title: Extract ContextOverseer module uit run_agent.py
+type: refactor
+priority: P1
+risk_class: medium
+review_policy: orange
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: >
+    Context overflow detectie, pressure warnings, compression triggers
+    en session splitting (~800 LOC: regels 5528-6343) zitten verweven
+    in de agent loop. Maakt het onmogelijk om context management
+    onafhankelijk te testen of tunen.
+  must_not_drift_from: Alleen extractie; geen nieuw compression gedrag.
+
+goal: >
+  Verplaats context management naar agent/context_overseer.py:
+  pressure detectie, warning injection, compression trigger,
+  session split logica, en budget warnings. run_agent.py delegeert
+  naar ContextOverseer.
+
+why: >
+  Context management is de subtielste code in Hermes. Verkeerde
+  compression timing veroorzaakt context loss. Geïsoleerd testen
+  met gesimuleerde token counts is essentieel.
+
+depends_on: []
+
+scope:
+  in:
+    - agent/context_overseer.py (NIEUW): ContextOverseer class
+    - run_agent.py: vervang inline context management door delegatie
+    - Methods/logica te verplaatsen:
+      - _compress_context() (regels 5528-5610)
+      - _emit_context_pressure() (regels 6305-6343)
+      - _get_budget_warning() (regels 6281-6304)
+      - _strip_budget_warnings_from_history() (regels 378-406)
+      - IterationBudget class (regels 165-207)
+      - Budget threshold logica (regels 634-639)
+  out:
+    - Geen wijziging aan context_compressor.py (bestaande LLM compressor)
+    - Geen wijziging aan hermes_state.py (session DB)
+    - Geen wijziging aan summary_compression.py
+
+paths:
+  expected_read:
+    - run_agent.py
+    - agent/context_compressor.py
+    - planning/MASTER_PLAN.md
+  expected_write:
+    - agent/context_overseer.py
+    - run_agent.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - run_agent.py
+  - agent/context_compressor.py
+
+risk_paths:
+  - run_agent.py (context loss bij verkeerde extractie)
+
+protected_invariants:
+  - Compression trigger threshold ongewijzigd (85%)
+  - Session split met parent_session_id chain ongewijzigd
+  - Memory flush vóór compression ongewijzigd
+  - Budget consumption en warning timing ongewijzigd
+
+write_policy:
+  allow:
+    - agent/context_overseer.py
+    - run_agent.py
+    - tests/test_context_overseer.py
+  deny:
+    - regressie_docs/**
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - "python -c \"from agent.context_overseer import ContextOverseer, IterationBudget; print('OK')\""
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-013/summary.md
+  manifest_path: execution/proof/HERMES-013/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: ContextOverseer.check_pressure() retourneert correct warning level bij gesimuleerde token counts
+    - id: F2
+      text: ContextOverseer.trigger_compression() roept flush_memories + compress + session_split aan in juiste volgorde
+    - id: F3
+      text: IterationBudget.consume() en .remaining werken identiek na verplaatsing
+  structural:
+    - id: S1
+      text: run_agent.py bevat geen inline context pressure/compression logica meer
+    - id: S2
+      text: agent/context_overseer.py is <=300 LOC
+  proof:
+    - id: P1
+      text: Bestaande agent tests groen + unit test met gesimuleerde token druk
+
+blockers: []

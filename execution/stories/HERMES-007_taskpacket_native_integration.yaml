@@ -1,0 +1,97 @@
+api_version: story-os/v1
+story_id: HERMES-007
+title: TaskPacket native integratie in delegate_task
+type: runtime
+priority: P0
+risk_class: low
+review_policy: green
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: >
+    Review-feedback: TaskPacket is utility naast het systeem, niet erin.
+    delegate_task accepteert alleen strings; TaskPacket.to_prompt() wordt
+    nooit automatisch aangeroepen.
+  must_not_drift_from: TaskPacket integratie; geen delegate_task runtime wijzigingen.
+
+goal: >
+  Maak delegate_task native TaskPacket-aware: accepteer een TaskPacket object
+  als alternatief voor losse goal/context strings. Interne conversie naar
+  prompt via to_prompt(). Backward compatible — strings blijven werken.
+
+why: >
+  Zonder native integratie is TaskPacket dode code. Het moet door delegate_task
+  herkend en gebruikt worden om structureel waarde te leveren.
+
+depends_on: [HERMES-006]
+
+scope:
+  in:
+    - tools/delegate_tool.py: delegate_task() accepteert optioneel packet=TaskPacket
+    - Als packet meegegeven: goal, context, toolsets, max_iterations uit packet halen
+    - Validatie via validate_packet() vóór gebruik
+    - Backward compat: bestaande string-based calls ongewijzigd
+    - _build_child_system_prompt hoeft niet meer op string te matchen
+  out:
+    - Geen wijziging aan TaskPacket dataclass zelf
+    - Geen wijziging aan subagent runtime
+    - Geen wijziging aan run_agent.py
+
+paths:
+  expected_read:
+    - agent/task_packet.py
+    - tools/delegate_tool.py
+  expected_write:
+    - tools/delegate_tool.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - agent/task_packet.py
+  - tools/delegate_tool.py
+
+risk_paths: []
+
+protected_invariants:
+  - Bestaande delegate_task calls met goal=string moeten identiek werken
+  - Subagent resultaat formaat ongewijzigd
+
+write_policy:
+  allow:
+    - tools/delegate_tool.py
+  deny: []
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify: []
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-007/summary.md
+  manifest_path: execution/proof/HERMES-007/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: delegate_task(packet=TaskPacket(...)) produceert correct child system prompt
+    - id: F2
+      text: delegate_task(goal="string") werkt identiek als voorheen
+    - id: F3
+      text: Ongeldige TaskPacket (lege objective) geeft foutmelding, geen crash
+  structural:
+    - id: S1
+      text: Geen nieuwe afhankelijkheden in delegate_tool.py buiten agent.task_packet
+  proof:
+    - id: P1
+      text: Test met TaskPacket input + string input, beide correcte output
+
+blockers: []

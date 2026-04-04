@@ -1,0 +1,99 @@
+api_version: story-os/v1
+story_id: HERMES-001
+title: Recovery Recipes Framework
+type: runtime
+priority: P0
+risk_class: low
+review_policy: green
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: Hermes heeft geen gestructureerde auto-recovery bij bekende faalscenario's; elke fout escaleert direct naar de user.
+  must_not_drift_from: Enkel recovery framework; geen tool- of provider-refactoring.
+
+goal: >
+  Implementeer een recovery recipes framework dat bekende faalscenario's (provider timeout,
+  MCP-fout, tool crash, permission denied) automatisch 1x probeert te herstellen voordat
+  de user wordt lastiggevallen. Met PartialRecovery als derde uitkomst.
+
+why: >
+  Autonome sessies (cron-jobs, subagents) falen nu bij de eerste transient error.
+  Een "try once, then escalate" pattern voorkomt onnodige onderbrekingen.
+
+depends_on: []
+
+scope:
+  in:
+    - Nieuw module agent/recovery_recipes.py met failure taxonomy enum
+    - 5 failure types: ProviderTimeout, McpError, ToolCrash, PermissionDenied, ContextOverflow
+    - Per type: ordered recovery steps + max_attempts (default 1) + escalation policy
+    - RecoveryResult enum: Recovered / PartialRecovery / EscalationRequired
+    - Hook in run_agent.py tool-execution loop voor auto-recovery
+    - Structured recovery event logging
+  out:
+    - Geen wijziging aan bestaande tool-implementaties
+    - Geen retry van hele agent loops (alleen individuele faalstappen)
+    - Geen UI/display wijzigingen
+
+paths:
+  expected_read:
+    - planning/MASTER_PLAN.md
+    - agent/context_compressor.py  # referentie voor error handling patterns
+    - run_agent.py                 # hook punt
+  expected_write:
+    - agent/recovery_recipes.py
+    - run_agent.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+
+risk_paths: []
+
+protected_invariants:
+  - Bestaande tool-execution flow mag niet breken als recovery module ontbreekt of faalt
+  - Recovery mag nooit meer dan 1 automatische retry doen per faaltype per stap
+
+write_policy:
+  allow:
+    - agent/recovery_recipes.py
+    - run_agent.py
+  deny: []
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - python -c "from agent.recovery_recipes import RecoveryEngine; print('OK')"
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-001/summary.md
+  manifest_path: execution/proof/HERMES-001/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: RecoveryEngine kan een ProviderTimeout failure ontvangen en 1x retry uitvoeren
+    - id: F2
+      text: Na max_attempts retries escaleert het naar EscalationRequired
+    - id: F3
+      text: PartialRecovery wordt correct gerapporteerd als sommige steps slagen
+  structural:
+    - id: S1
+      text: Geen circular imports met bestaande agent modules
+    - id: S2
+      text: Recovery module is optioneel (graceful degradation als import faalt)
+  proof:
+    - id: P1
+      text: Unit tests voor alle 5 failure types + recovery paths
+
+blockers: []

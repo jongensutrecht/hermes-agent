@@ -1,0 +1,132 @@
+{
+  "api_version": "usc/v1",
+  "plan_id": "hermes-claw-code-improvements-v1",
+  "repo_id": "hermes-agent",
+  "proof_artifact_root": "execution/proof",
+  "runner_policy": {
+    "max_repair_attempts": 1,
+    "worktree_mode": "direct",
+    "auto_continue_on_success": true,
+    "stop_on_statuses": ["blocked", "failed"]
+  },
+  "stories": [
+    {
+      "story_id": "HERMES-001",
+      "path": "execution/stories/HERMES-001_recovery_recipes.yaml",
+      "status": "done",
+      "attempt_count": 1,
+      "last_result": "success",
+      "notes": "Recovery recipes framework: 7 failure types, fail-open hooks in run_agent.py. Proof: execution/proof/HERMES-001/"
+    },
+    {
+      "story_id": "HERMES-002",
+      "path": "execution/stories/HERMES-002_deferred_tool_loading.yaml",
+      "status": "done",
+      "attempt_count": 1,
+      "last_result": "success",
+      "notes": "CORE_TOOLS (16) in toolsets.py + tiered filter in get_tool_definitions. 36% token reductie. Proof: execution/proof/HERMES-002/"
+    },
+    {
+      "story_id": "HERMES-003",
+      "path": "execution/stories/HERMES-003_prompt_cache_break_detection.yaml",
+      "status": "done",
+      "attempt_count": 1,
+      "last_result": "success",
+      "notes": "TrackedPromptState + cache break detection in prompt_caching.py. Proof: execution/proof/HERMES-003/"
+    },
+    {
+      "story_id": "HERMES-004",
+      "path": "execution/stories/HERMES-004_summary_compression_prepass.yaml",
+      "status": "done",
+      "attempt_count": 1,
+      "last_result": "success",
+      "notes": "Budget-aware summary compression (186 LOC). P0-P3 priority tiers, greedy selection. Proof: execution/proof/HERMES-004/"
+    },
+    {
+      "story_id": "HERMES-005",
+      "path": "execution/stories/HERMES-005_mcp_graceful_degradation.yaml",
+      "status": "done",
+      "attempt_count": 1,
+      "last_result": "success",
+      "notes": "McpHealthTracker (230 LOC): per-server health, missing_tools, degraded report. Proof: execution/proof/HERMES-005/"
+    },
+    {
+      "story_id": "HERMES-006",
+      "path": "execution/stories/HERMES-006_structured_task_packets.yaml",
+      "status": "done",
+      "attempt_count": 1,
+      "last_result": "success",
+      "notes": "TaskPacket + ValidatedPacket + to_prompt/to_delegate_kwargs (152 LOC). Proof: execution/proof/HERMES-006/"
+    },
+    {
+      "story_id": "HERMES-007",
+      "path": "execution/stories/HERMES-007_taskpacket_native_integration.yaml",
+      "status": "done",
+      "attempt_count": 1,
+      "last_result": "success",
+      "notes": "delegate_task accepteert packet=TaskPacket native. Proof: execution/proof/HERMES-007/"
+    },
+    {
+      "story_id": "HERMES-008",
+      "path": "execution/stories/HERMES-008_typed_error_classification.yaml",
+      "status": "done",
+      "attempt_count": 1,
+      "last_result": "success",
+      "notes": "3-layer classify: exception type > HTTP status > string fallback. Proof: execution/proof/HERMES-008/"
+    },
+    {
+      "story_id": "HERMES-011",
+      "path": "execution/stories/HERMES-011_extract_provider_fallback.yaml",
+      "status": "ready",
+      "attempt_count": 0,
+      "max_attempts": 3,
+      "last_result": null,
+      "notes": ""
+    },
+    {
+      "story_id": "HERMES-012",
+      "path": "execution/stories/HERMES-012_extract_tool_executor.yaml",
+      "status": "ready",
+      "attempt_count": 0,
+      "max_attempts": 3,
+      "last_result": null,
+      "notes": ""
+    },
+    {
+      "story_id": "HERMES-013",
+      "path": "execution/stories/HERMES-013_extract_context_overseer.yaml",
+      "status": "ready",
+      "attempt_count": 0,
+      "max_attempts": 3,
+      "last_result": null,
+      "notes": ""
+    },
+    {
+      "story_id": "HERMES-014",
+      "path": "execution/stories/HERMES-014_explicit_agent_state.yaml",
+      "status": "ready",
+      "attempt_count": 0,
+      "max_attempts": 3,
+      "last_result": null,
+      "notes": "Depends on HERMES-011, 012, 013"
+    },
+    {
+      "story_id": "HERMES-015",
+      "path": "execution/stories/HERMES-015_eliminate_global_state.yaml",
+      "status": "ready",
+      "attempt_count": 0,
+      "max_attempts": 3,
+      "last_result": null,
+      "notes": "Depends on HERMES-007"
+    },
+    {
+      "story_id": "HERMES-016",
+      "path": "execution/stories/HERMES-016_activate_mcp_health.yaml",
+      "status": "ready",
+      "attempt_count": 0,
+      "max_attempts": 3,
+      "last_result": null,
+      "notes": "Depends on HERMES-005"
+    }
+  ]
+}

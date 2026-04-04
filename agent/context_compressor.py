@@ -567,6 +567,21 @@ Write only the summary body. Do not include any preamble or prefix."""
 
         display_tokens = current_tokens if current_tokens else self.last_prompt_tokens or estimate_messages_tokens_rough(messages)
 
+        # Phase 0.5: Summary compression pre-pass (HERMES-004, no LLM call)
+        # Compress any existing summary messages before LLM summarization
+        try:
+            from agent.summary_compression import compress_summary
+            for msg in messages:
+                content = msg.get("content", "")
+                if isinstance(content, str) and len(content) > 1500 and "[CONTEXT COMPACTION]" in content:
+                    result = compress_summary(content)
+                    if result.lines_omitted > 0:
+                        msg["content"] = result.text
+                        logger.info("Pre-pass compressed summary: %d -> %d chars (%d lines omitted)",
+                                    result.original_chars, result.compressed_chars, result.lines_omitted)
+        except Exception:
+            pass  # fail-open
+
         # Phase 1: Prune old tool results (cheap, no LLM call)
         messages, pruned_count = self._prune_old_tool_results(
             messages, protect_tail_count=self.protect_last_n * 3,

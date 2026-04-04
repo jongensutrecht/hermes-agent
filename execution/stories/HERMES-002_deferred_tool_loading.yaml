@@ -1,0 +1,107 @@
+api_version: story-os/v1
+story_id: HERMES-002
+title: Deferred Tool Loading / ToolSearch
+type: runtime
+priority: P0
+risk_class: medium
+review_policy: orange
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: Hermes stuurt ~20 tool-definities (~8K tokens) mee in elke prompt, ook bij simpele vragen. Dat is 30-40% token-verspilling.
+  must_not_drift_from: Tool-context reductie; geen tool-functionaliteit wijzigen.
+
+goal: >
+  Implementeer een tiered tool-loading systeem: bij simpele prompts krijgt de agent
+  alleen core tools (terminal, read_file, write_file, search_files, patch, web_search).
+  Overige tools worden beschikbaar via een ToolSearch meta-tool dat on-demand tool
+  definities injecteert.
+
+why: >
+  Token-reductie van ~8K naar ~3K per turn bij simpele taken. Bij 50-turn sessies
+  scheelt dat ~250K tokens (~$0.75 bij Sonnet). Daarnaast: minder noise in de
+  system prompt verbetert tool-selectie accuracy.
+
+depends_on: []
+
+scope:
+  in:
+    - Analyseer huidige tool-definitie omvang in system prompt (tokens per toolset)
+    - Classificeer tools in tiers: core (altijd aanwezig) / extended (on-demand)
+    - Nieuw ToolSearch meta-tool dat extended tools kan opzoeken en hun schema retourneert
+    - Prompt builder aanpassen om alleen core tools standaard te laden
+    - Config optie voor tool_loading_mode: full (legacy) | tiered (default)
+  out:
+    - Geen wijziging aan tool-functionaliteit
+    - Geen wijziging aan MCP tool loading
+    - Geen wijziging aan toolset-distributie voor data generation
+
+paths:
+  expected_read:
+    - planning/MASTER_PLAN.md
+    - toolsets.py
+    - agent/prompt_builder.py
+    - model_tools.py
+  expected_write:
+    - model_tools.py        # ToolSearch tool definitie
+    - agent/prompt_builder.py  # tiered loading logic
+    - toolsets.py           # tier classificatie
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - toolsets.py
+  - model_tools.py
+
+risk_paths:
+  - agent/prompt_builder.py  # core prompt assembly
+
+protected_invariants:
+  - tool_loading_mode=full moet identiek gedrag geven als huidige situatie
+  - Alle tools moeten bereikbaar blijven (via ToolSearch of direct)
+  - MCP tools worden niet geraakt door tiering
+
+write_policy:
+  allow:
+    - model_tools.py
+    - agent/prompt_builder.py
+    - toolsets.py
+  deny: []
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - python -c "from toolsets import CORE_TOOLS, EXTENDED_TOOLS; print(f'core={len(CORE_TOOLS)} ext={len(EXTENDED_TOOLS)}')"
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: true  # moet echte prompt assembly testen
+
+proof:
+  summary_path: execution/proof/HERMES-002/summary.md
+  manifest_path: execution/proof/HERMES-002/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: Tiered mode levert een system prompt met <=50% van de huidige tool tokens
+    - id: F2
+      text: ToolSearch retourneert correct schema voor elke extended tool
+    - id: F3
+      text: Full mode is identiek aan huidige gedrag (backward compat)
+  structural:
+    - id: S1
+      text: tool_loading_mode is configureerbaar in config.yaml
+    - id: S2
+      text: Core tools zijn altijd beschikbaar zonder ToolSearch
+  proof:
+    - id: P1
+      text: Token count vergelijking old vs new prompt bij een standaard sessie
+
+blockers: []

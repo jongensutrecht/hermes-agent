@@ -1,0 +1,98 @@
+api_version: story-os/v1
+story_id: HERMES-008
+title: "Error classificatie: typed exceptions i.p.v. regex"
+type: runtime
+priority: P0
+risk_class: low
+review_policy: green
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: >
+    Review-feedback: FailureType.classify() matcht op substrings in error
+    messages. Breekt zodra providers error messages wijzigen.
+  must_not_drift_from: Error classificatie verbeteren; geen recovery logica wijzigen.
+
+goal: >
+  Refactor FailureType.classify() om primair te classificeren op basis van
+  exception types en HTTP status codes, met string matching alleen als
+  fallback. Voeg typed exception mapping toe voor openai, anthropic, en
+  httpx exceptions.
+
+why: >
+  String-based classificatie is fragiel. Exception types en HTTP codes zijn
+  stabiele API-contracten die niet per release wijzigen.
+
+depends_on: [HERMES-001]
+
+scope:
+  in:
+    - agent/recovery_recipes.py: FailureType.classify() refactoren
+    - Exception type mapping: openai.RateLimitError -> PROVIDER_RATE_LIMIT, etc.
+    - HTTP status mapping: 429 -> RATE_LIMIT, 529 -> OVERLOADED (al deels aanwezig)
+    - String matching als laatst-resort fallback behouden
+    - Bestaande tests moeten blijven werken
+  out:
+    - Geen wijziging aan RecoveryEngine of recovery steps
+    - Geen wijziging aan run_agent.py hooks
+    - Geen nieuwe dependencies (exception types via getattr, niet direct import)
+
+paths:
+  expected_read:
+    - agent/recovery_recipes.py
+  expected_write:
+    - agent/recovery_recipes.py
+
+required_read:
+  - planning/MASTER_PLAN.md
+  - agent/recovery_recipes.py
+
+risk_paths: []
+
+protected_invariants:
+  - Alle bestaande classify() aanroepen moeten hetzelfde resultaat geven
+  - String-based fallback blijft werken als exception types niet beschikbaar zijn
+
+write_policy:
+  allow:
+    - agent/recovery_recipes.py
+  deny: []
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - "python -c \"from agent.recovery_recipes import FailureType; print('OK')\""
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-008/summary.md
+  manifest_path: execution/proof/HERMES-008/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: openai.RateLimitError exception -> PROVIDER_RATE_LIMIT (zonder string matching)
+    - id: F2
+      text: HTTP 429 status code -> PROVIDER_RATE_LIMIT (zonder string matching)
+    - id: F3
+      text: Onbekende exception met "timeout" in message -> PROVIDER_TIMEOUT (fallback)
+  structural:
+    - id: S1
+      text: Geen harde imports van openai/anthropic (via getattr/isinstance checks)
+    - id: S2
+      text: Bestaande string-based tests ongewijzigd groen
+  proof:
+    - id: P1
+      text: Test met echte exception classes + HTTP codes + string fallback
+
+blockers: []

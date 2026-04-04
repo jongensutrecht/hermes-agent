@@ -1,0 +1,95 @@
+api_version: story-os/v1
+story_id: HERMES-006
+title: Structured Task Packets voor delegate_task
+type: runtime
+priority: P1
+risk_class: low
+review_policy: green
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: delegate_task gebruikt nu vrije tekst; structured packets geven betere subagent-aansturing met validatie en escalation policy.
+  must_not_drift_from: Packet format voor delegatie; geen subagent runtime wijzigingen.
+
+goal: >
+  Definieer een TaskPacket formaat (objective, scope, acceptance_tests,
+  escalation_policy, reporting_contract) dat intern gebruikt wordt om
+  delegate_task calls te structureren. Validated wrapper voorkomt
+  incompleet gedelegeerde taken.
+
+why: >
+  Subagents presteren beter met expliciete scope en acceptance criteria
+  dan met vrije tekst. Escalation policy voorkomt dat subagents eindeloos
+  doordraaien op onoplosbare problemen.
+
+depends_on: []
+
+scope:
+  in:
+    - TaskPacket dataclass met velden: objective, scope, repo, acceptance_tests, commit_policy, escalation_policy, reporting_contract
+    - ValidatedPacket newtype (alleen via validate() aan te maken)
+    - Accumulerende validatie (alle fouten, niet alleen eerste)
+    - Helper functie om TaskPacket te serialiseren naar subagent prompt
+    - Optioneel: integratie in delegate_task tool
+  out:
+    - Geen wijziging aan subagent runtime
+    - Geen wijziging aan cron-job systeem
+
+paths:
+  expected_read:
+    - planning/MASTER_PLAN.md
+  expected_write:
+    - agent/task_packet.py  # nieuw
+
+required_read:
+  - planning/MASTER_PLAN.md
+
+risk_paths: []
+
+protected_invariants:
+  - Bestaande delegate_task met vrije tekst moet blijven werken (backward compat)
+  - TaskPacket is optioneel, niet verplicht
+
+write_policy:
+  allow:
+    - agent/task_packet.py
+  deny: []
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify:
+    - "python -c \"from agent.task_packet import TaskPacket, validate_packet; print('OK')\""
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-006/summary.md
+  manifest_path: execution/proof/HERMES-006/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: validate_packet wijst packet af met lege objective of scope
+    - id: F2
+      text: Accumulerende validatie rapporteert alle fouten in 1 keer
+    - id: F3
+      text: to_prompt() serialiseert packet naar leesbare subagent instructie
+  structural:
+    - id: S1
+      text: TaskPacket is een frozen dataclass
+    - id: S2
+      text: Geen imports van agent runtime modules (standalone)
+  proof:
+    - id: P1
+      text: Unit test voor validatie + serialisatie
+
+blockers: []

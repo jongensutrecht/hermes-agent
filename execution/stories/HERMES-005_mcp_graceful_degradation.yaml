@@ -1,0 +1,94 @@
+api_version: story-os/v1
+story_id: HERMES-005
+title: MCP Graceful Degradation
+type: runtime
+priority: P1
+risk_class: medium
+review_policy: orange
+workspace_policy: direct
+
+strategy_anchor:
+  plan_source: planning/MASTER_PLAN.md
+  why_this_story_exists: Als 1 MCP-server faalt, faalt de hele MCP setup. Agent verliest alle MCP-tools in plaats van alleen die van de gefaalde server.
+  must_not_drift_from: MCP health tracking en degraded mode; geen MCP protocol wijzigingen.
+
+goal: >
+  Implementeer MCP graceful degradation: track per-server health status,
+  laat werkende servers draaien als 1 server faalt, rapporteer missing_tools
+  zodat de agent weet welke capabilities verloren zijn.
+
+why: >
+  Hermes config heeft vaak 3+ MCP servers. Als 1 faalt (bijv. door timeout
+  of config error) moeten de andere gewoon doorwerken.
+
+depends_on: []
+
+scope:
+  in:
+    - McpHealthTracker class met per-server status (healthy/degraded/dead)
+    - Bij server startup failure: markeer server als failed, continue met rest
+    - missing_tools lijst: welke tools niet beschikbaar zijn door failed servers
+    - Recoverable vs fatal error classificatie
+    - Periodieke health check (bij elke tool call naar een MCP server)
+    - Logging van degraded state
+  out:
+    - Geen wijziging aan MCP protocol implementatie
+    - Geen automatische server restart (dat is recovery recipes scope)
+    - Geen UI wijzigingen
+
+paths:
+  expected_read:
+    - planning/MASTER_PLAN.md
+  expected_write:
+    - agent/mcp_health.py  # nieuw
+
+required_read:
+  - planning/MASTER_PLAN.md
+
+risk_paths: []
+
+protected_invariants:
+  - Werkende MCP servers mogen niet beïnvloed worden door een gefaalde server
+  - MCP tool calls naar werkende servers moeten identiek blijven
+
+write_policy:
+  allow:
+    - agent/mcp_health.py
+  deny: []
+
+quality_gates:
+  use_repo_profile: false
+  extra_verify: []
+  build_required: false
+
+test_scope:
+  level: targeted
+  replay_required: false
+  integration_required: false
+
+proof:
+  summary_path: execution/proof/HERMES-005/summary.md
+  manifest_path: execution/proof/HERMES-005/proof_manifest.json
+  must_include:
+    consulted_docs: true
+    protected_invariant: true
+    verification: true
+
+acceptance:
+  functional:
+    - id: F1
+      text: Bij 1 failed server van 3, blijven de andere 2 servers beschikbaar
+    - id: F2
+      text: missing_tools lijst bevat exact de tools van de gefaalde server
+    - id: F3
+      text: Recoverable errors worden apart geclassificeerd van fatale errors
+  structural:
+    - id: S1
+      text: McpHealthTracker is thread-safe
+    - id: S2
+      text: Health tracking is fail-open (als tracking zelf faalt, werkt MCP normaal)
+  proof:
+    - id: P1
+      text: Unit test met mock server failures
+
+blockers: []

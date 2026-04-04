@@ -887,10 +887,19 @@ class AIAgent:
                       " → ".join(f"{f['model']} ({f['provider']})" for f in self._fallback_chain))
 
         # Get available tools with filtering
+        # Resolve tool_loading_mode from config (HERMES-002)
+        _tool_loading_mode = "full"
+        try:
+            _agent_cfg = (config or {}).get("agent", {}) if isinstance(config, dict) else {}
+            _tool_loading_mode = _agent_cfg.get("tool_loading_mode", "full")
+        except Exception:
+            pass
+
         self.tools = get_tool_definitions(
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
             quiet_mode=self.quiet_mode,
+            tool_loading_mode=_tool_loading_mode,
         )
         
         # Show tool configuration and store valid tool names for validation
@@ -959,6 +968,20 @@ class AIAgent:
             enabled=checkpoints_enabled,
             max_snapshots=checkpoint_max_snapshots,
         )
+
+        # Recovery recipes engine (fail-open: if import fails, set to None)
+        try:
+            from agent.recovery_recipes import RecoveryEngine
+            self._recovery_engine = RecoveryEngine()
+        except Exception:
+            self._recovery_engine = None
+
+        # Prompt cache break tracker (HERMES-003, fail-open)
+        try:
+            from agent.prompt_caching import TrackedPromptState
+            self._cache_tracker = TrackedPromptState()
+        except Exception:
+            self._cache_tracker = None
         
         # SQLite session store (optional -- provided by CLI or gateway)
         self._session_db = session_db
@@ -5782,6 +5805,26 @@ class AIAgent:
             except Exception as tool_error:
                 result = f"Error executing tool '{function_name}': {tool_error}"
                 logger.error("_invoke_tool raised for %s: %s", function_name, tool_error, exc_info=True)
+                # ── Recovery recipes hook (fail-open) ──────────────────
+                try:
+                    if hasattr(self, '_recovery_engine') and self._recovery_engine:
+                        from agent.recovery_recipes import try_recover, RecoveryOutcome, RecoveryStep
+                        import time as _time
+                        rr = try_recover(
+                            self._recovery_engine, tool_error,
+                            context={"tool_name": function_name, "args": str(function_args)[:200]},
+                        )
+                        if rr.outcome == RecoveryOutcome.RECOVERED:
+                            if rr.wait_seconds > 0:
+                                _time.sleep(rr.wait_seconds)
+                            try:
+                                result = self._invoke_tool(function_name, function_args, effective_task_id)
+                            except Exception as retry_err:
+                                result = f"Error executing tool '{function_name}' (after recovery retry): {retry_err}"
+                                logger.warning("Recovery retry also failed for %s: %s", function_name, retry_err)
+                except Exception:
+                    pass  # fail-open: recovery engine crash must not break tool execution
+                # ── End recovery hook ──────────────────────────────────
             duration = time.time() - start
             is_error, _ = _detect_tool_failure(function_name, result)
             results[index] = (function_name, function_args, result, duration, is_error)
@@ -6089,6 +6132,28 @@ class AIAgent:
                 except Exception as tool_error:
                     function_result = f"Error executing tool '{function_name}': {tool_error}"
                     logger.error("handle_function_call raised for %s: %s", function_name, tool_error, exc_info=True)
+                    # ── Recovery recipes hook (fail-open) ──────────────
+                    try:
+                        if hasattr(self, '_recovery_engine') and self._recovery_engine:
+                            from agent.recovery_recipes import try_recover, RecoveryOutcome
+                            rr = try_recover(
+                                self._recovery_engine, tool_error,
+                                context={"tool_name": function_name, "args": str(function_args)[:200]},
+                            )
+                            if rr.outcome == RecoveryOutcome.RECOVERED:
+                                if rr.wait_seconds > 0:
+                                    time.sleep(rr.wait_seconds)
+                                try:
+                                    function_result = handle_function_call(
+                                        function_name, function_args, effective_task_id,
+                                        enabled_tools=list(self.valid_tool_names) if self.valid_tool_names else None,
+                                    )
+                                    _spinner_result = function_result
+                                except Exception as retry_err:
+                                    function_result = f"Error executing tool '{function_name}' (after recovery retry): {retry_err}"
+                    except Exception:
+                        pass  # fail-open
+                    # ── End recovery hook ──────────────────────────────
                 finally:
                     tool_duration = time.time() - tool_start_time
                     cute_msg = _get_cute_tool_message_impl(function_name, function_args, tool_duration, result=_spinner_result)
@@ -6105,6 +6170,27 @@ class AIAgent:
                 except Exception as tool_error:
                     function_result = f"Error executing tool '{function_name}': {tool_error}"
                     logger.error("handle_function_call raised for %s: %s", function_name, tool_error, exc_info=True)
+                    # ── Recovery recipes hook (fail-open) ──────────────
+                    try:
+                        if hasattr(self, '_recovery_engine') and self._recovery_engine:
+                            from agent.recovery_recipes import try_recover, RecoveryOutcome
+                            rr = try_recover(
+                                self._recovery_engine, tool_error,
+                                context={"tool_name": function_name, "args": str(function_args)[:200]},
+                            )
+                            if rr.outcome == RecoveryOutcome.RECOVERED:
+                                if rr.wait_seconds > 0:
+                                    time.sleep(rr.wait_seconds)
+                                try:
+                                    function_result = handle_function_call(
+                                        function_name, function_args, effective_task_id,
+                                        enabled_tools=list(self.valid_tool_names) if self.valid_tool_names else None,
+                                    )
+                                except Exception as retry_err:
+                                    function_result = f"Error executing tool '{function_name}' (after recovery retry): {retry_err}"
+                    except Exception:
+                        pass  # fail-open
+                    # ── End recovery hook ──────────────────────────────
                 tool_duration = time.time() - tool_start_time
 
             result_preview = function_result if self.verbose_logging else (
@@ -7298,7 +7384,18 @@ class AIAgent:
                             prompt = usage_dict["prompt_tokens"]
                             hit_pct = (cached / prompt * 100) if prompt > 0 else 0
                             if not self.quiet_mode:
-                                self._vprint(f"{self.log_prefix}   💾 Cache: {cached:,}/{prompt:,} tokens ({hit_pct:.0f}% hit, {written:,} written)")
+                                self._vprint(f"{self.log_prefix}   💾 Cache: {cached:,}/{prompt:,} input tokens cached ({hit_pct:.0f}%), {written:,} written", force=True)
+                            # ── Cache break detection (HERMES-003) ────────
+                            try:
+                                if hasattr(self, '_cache_tracker') and self._cache_tracker:
+                                    break_msg = self._cache_tracker.check_cache_break(
+                                        cache_read_input_tokens=cached,
+                                        cache_creation_input_tokens=written,
+                                    )
+                                    if break_msg:
+                                        self._vprint(f"{self.log_prefix}   ⚠️  {break_msg}", force=True)
+                            except Exception:
+                                pass  # fail-open
                     
                     has_retried_429 = False  # Reset on success
                     break  # Success, exit retry loop
