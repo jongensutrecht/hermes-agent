@@ -1412,6 +1412,56 @@ class HermesCLI:
     # ── Reasoning effort levels for cycling ────────────────────────
     _REASONING_LEVELS = ("xhigh", "high", "medium", "low", "minimal", "none")
 
+    # ── Model quick-switch list ───────────────────────────────────
+    # Configurable via config.yaml: agent.model_cycle
+    # Falls back to a sensible default based on authenticated providers.
+    _model_cycle: list = []
+    _model_cycle_idx: int = 0
+
+    def _get_model_cycle(self) -> list:
+        """Return the model cycle list, initializing from config if needed."""
+        if self._model_cycle:
+            return self._model_cycle
+        # Try config
+        cfg = CLI_CONFIG.get("agent", {})
+        cycle = cfg.get("model_cycle", [])
+        if cycle and isinstance(cycle, list):
+            self._model_cycle = cycle
+            return self._model_cycle
+        # Auto-detect from authenticated providers
+        try:
+            from hermes_cli.models import curated_models_for_provider, list_available_providers
+            models = []
+            for p in list_available_providers():
+                if p.get("authenticated"):
+                    for m in curated_models_for_provider(p["id"])[:3]:
+                        mid = m[0] if isinstance(m, tuple) else m
+                        if mid not in models:
+                            models.append(mid)
+            self._model_cycle = models[:8] or [self.model]
+        except Exception:
+            self._model_cycle = [self.model]
+        return self._model_cycle
+
+    def _cycle_model(self, direction: int = 1) -> str:
+        """Cycle to next/previous model. Returns new model name."""
+        cycle = self._get_model_cycle()
+        if not cycle:
+            return self.model
+        # Find current position
+        try:
+            idx = cycle.index(self.model)
+        except ValueError:
+            idx = -1
+        new_idx = (idx + direction) % len(cycle)
+        new_model = cycle[new_idx]
+        self._model_cycle_idx = new_idx
+        # Apply
+        self.model = new_model
+        self.agent = None  # force re-init with new model
+        self._active_agent_route_signature = None
+        return new_model
+
     def _get_current_reasoning_label(self) -> str:
         """Return short label for current reasoning effort."""
         rc = getattr(self, "reasoning_config", None)
@@ -4126,6 +4176,24 @@ class HermesCLI:
                 print("  ✨ (◕‿◕)✨ Fresh start! Screen cleared and conversation reset.\n")
         elif canonical == "history":
             self.show_history()
+        elif canonical == "model":
+            # /model [name] — switch model mid-session or show cycle list
+            parts = cmd_original.split(maxsplit=1)
+            if len(parts) > 1 and parts[1].strip():
+                new_model = parts[1].strip()
+                self.model = new_model
+                self.agent = None
+                self._active_agent_route_signature = None
+                _cprint(f"  ⚕ Model switched to: {new_model}")
+            else:
+                cycle = self._get_model_cycle()
+                current = self.model
+                _cprint(f"  Current: {current}")
+                _cprint(f"  Cycle (Esc+M to switch):")
+                for i, m in enumerate(cycle):
+                    marker = " →" if m == current else "  "
+                    _cprint(f"  {marker} {m}")
+                _cprint(f"\n  Usage: /model <name> to switch directly")
         elif canonical == "think":
             # /think [level] — set or cycle reasoning effort
             parts = cmd_original.split(maxsplit=1)
@@ -6955,6 +7023,13 @@ class HermesCLI:
             """Shift+Tab: cycle reasoning effort level (shown in footer)."""
             new_level = cli_ref._cycle_reasoning_effort(direction=1)
             _cprint(f"\r{_DIM}🧠 {new_level}{_RST}")
+            event.app.invalidate()
+
+        @kb.add('escape', 'm')
+        def handle_esc_m(event):
+            """Esc+M: cycle model (shown in footer). Configure via agent.model_cycle in config.yaml."""
+            new_model = cli_ref._cycle_model(direction=1)
+            _cprint(f"\r{_DIM}⚕ model → {new_model}{_RST}")
             event.app.invalidate()
 
         @kb.add('tab', eager=True)
