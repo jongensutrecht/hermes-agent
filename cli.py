@@ -7025,11 +7025,11 @@ class HermesCLI:
             _cprint(f"\r{_DIM}🧠 {new_level}{_RST}")
             event.app.invalidate()
 
-        @kb.add('escape', 'm')
-        def handle_esc_m(event):
-            """Esc+M: cycle model (shown in footer). Configure via agent.model_cycle in config.yaml."""
+        @kb.add('c-q')
+        def handle_ctrl_q(event):
+            """Ctrl+Q: cycle model (shown in footer). Configure via agent.model_cycle in config.yaml."""
             new_model = cli_ref._cycle_model(direction=1)
-            _cprint(f"\r{_DIM}⚕ model → {new_model}{_RST}")
+            _cprint(f"\r{_DIM}⚕ → {new_model}{_RST}")
             event.app.invalidate()
 
         @kb.add('tab', eager=True)
