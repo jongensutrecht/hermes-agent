@@ -1409,6 +1409,36 @@ class HermesCLI:
         filled = round((safe_percent / 100) * width)
         return f"[{('█' * filled) + ('░' * max(0, width - filled))}]"
 
+    # ── Reasoning effort levels for cycling ────────────────────────
+    _REASONING_LEVELS = ("xhigh", "high", "medium", "low", "minimal", "none")
+
+    def _get_current_reasoning_label(self) -> str:
+        """Return short label for current reasoning effort."""
+        rc = getattr(self, "reasoning_config", None)
+        if rc is None:
+            return "default"
+        if not rc.get("enabled", True):
+            return "none"
+        return rc.get("effort", "medium")
+
+    def _cycle_reasoning_effort(self, direction: int = 1) -> str:
+        """Cycle reasoning effort up (+1) or down (-1). Returns new level."""
+        current = self._get_current_reasoning_label()
+        levels = self._REASONING_LEVELS
+        try:
+            idx = levels.index(current)
+        except ValueError:
+            idx = 2  # default to medium
+        new_idx = (idx + direction) % len(levels)
+        new_level = levels[new_idx]
+        # Apply
+        self.reasoning_config = _parse_reasoning_config(new_level)
+        # Update running agent if present
+        agent = getattr(self, "agent", None)
+        if agent:
+            agent.reasoning_config = self.reasoning_config
+        return new_level
+
     def _get_status_bar_snapshot(self) -> Dict[str, Any]:
         model_name = self.model or "unknown"
         model_short = model_name.split("/")[-1] if "/" in model_name else model_name
@@ -1421,6 +1451,7 @@ class HermesCLI:
         snapshot = {
             "model_name": model_name,
             "model_short": model_short,
+            "reasoning_label": self._get_current_reasoning_label(),
             "duration": format_duration_compact(elapsed_seconds),
             "context_tokens": 0,
             "context_length": None,
@@ -1555,6 +1586,9 @@ class HermesCLI:
                 width = shutil.get_terminal_size((80, 24)).columns
             duration_label = snapshot["duration"]
 
+            reasoning_label = snapshot.get("reasoning_label", "")
+            reasoning_short = {"xhigh": "🧠xhi", "high": "🧠hi", "medium": "🧠med", "low": "🧠lo", "minimal": "🧠min", "none": "🧠off"}.get(reasoning_label, "")
+
             if width < 52:
                 frags = [
                     ("class:status-bar", " ⚕ "),
@@ -1570,6 +1604,8 @@ class HermesCLI:
                     frags = [
                         ("class:status-bar", " ⚕ "),
                         ("class:status-bar-strong", snapshot["model_short"]),
+                        ("class:status-bar-dim", " · "),
+                        ("class:status-bar-dim", reasoning_short),
                         ("class:status-bar-dim", " · "),
                         (self._status_bar_context_style(percent), percent_label),
                         ("class:status-bar-dim", " · "),
@@ -1588,6 +1624,8 @@ class HermesCLI:
                     frags = [
                         ("class:status-bar", " ⚕ "),
                         ("class:status-bar-strong", snapshot["model_short"]),
+                        ("class:status-bar-dim", " │ "),
+                        ("class:status-bar-dim", reasoning_short),
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", context_label),
                         ("class:status-bar-dim", " │ "),
@@ -4088,6 +4126,23 @@ class HermesCLI:
                 print("  ✨ (◕‿◕)✨ Fresh start! Screen cleared and conversation reset.\n")
         elif canonical == "history":
             self.show_history()
+        elif canonical == "think":
+            # /think [level] — set or cycle reasoning effort
+            parts = cmd_original.split(maxsplit=1)
+            if len(parts) > 1 and parts[1].strip():
+                level = parts[1].strip().lower()
+                valid = ("xhigh", "high", "medium", "low", "minimal", "none")
+                if level in valid:
+                    self.reasoning_config = _parse_reasoning_config(level)
+                    agent = getattr(self, "agent", None)
+                    if agent:
+                        agent.reasoning_config = self.reasoning_config
+                    _cprint(f"  🧠 Reasoning effort: {level}")
+                else:
+                    _cprint(f"  ⚠️  Unknown level '{level}'. Valid: {', '.join(valid)}")
+            else:
+                new_level = self._cycle_reasoning_effort(direction=1)
+                _cprint(f"  🧠 Reasoning effort: {new_level}")
         elif canonical == "title":
             parts = cmd_original.split(maxsplit=1)
             if len(parts) > 1:
