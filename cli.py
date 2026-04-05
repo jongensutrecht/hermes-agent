@@ -1164,6 +1164,8 @@ class HermesCLI:
         self.resume_display = CLI_CONFIG["display"].get("resume_display", "full")
         # bell_on_complete: play terminal bell (\a) when agent finishes a response
         self.bell_on_complete = CLI_CONFIG["display"].get("bell_on_complete", False)
+        # _input_needed_title_base: original terminal title (for input-needed restore)
+        self._input_needed_title_base = None
         # show_reasoning: display model thinking/reasoning before the response
         self.show_reasoning = CLI_CONFIG["display"].get("show_reasoning", False)
         # busy_input_mode: "interrupt" (Enter interrupts current run) or "queue" (Enter queues for next turn)
@@ -1384,6 +1386,91 @@ class HermesCLI:
         # Background task tracking: {task_id: threading.Thread}
         self._background_tasks: Dict[str, threading.Thread] = {}
         self._background_task_counter = 0
+
+    # ── Input-needed notifications (bell + sound + desktop + title) ────
+    # Survives hermes update via ~/.hermes/hooks/post-merge-reapply.
+    # Ported from Pi CLI input-needed.ts extension.
+
+    def _notify_input_needed(self) -> None:
+        """Play bell, desktop sound, notify-send, and set terminal title."""
+        if not self.bell_on_complete:
+            return
+
+        # 1. Terminal bell
+        try:
+            sys.stdout.write("\a")
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+        # 2. Set terminal title to [INPUT NODIG]
+        try:
+            if self._input_needed_title_base is None:
+                self._input_needed_title_base = "hermes"
+            sys.stdout.write(f"\033]0;{self._input_needed_title_base}  [INPUT NODIG]\007")
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+        # 3. Desktop sound (best-effort, non-blocking)
+        def _play_sound():
+            import shutil
+            if shutil.which("canberra-gtk-play"):
+                try:
+                    subprocess.run(
+                        ["canberra-gtk-play", "-i", "message-new-instant"],
+                        timeout=3, capture_output=True,
+                    )
+                    return
+                except Exception:
+                    pass
+            if shutil.which("paplay"):
+                for sf in [
+                    "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga",
+                    "/usr/share/sounds/freedesktop/stereo/complete.oga",
+                    "/usr/share/sounds/freedesktop/stereo/bell.oga",
+                ]:
+                    if os.path.exists(sf):
+                        try:
+                            subprocess.run(["paplay", sf], timeout=4, capture_output=True)
+                            return
+                        except Exception:
+                            pass
+
+        threading.Thread(target=_play_sound, daemon=True).start()
+
+        # 4. Desktop notification (best-effort, non-blocking)
+        def _desktop_notify():
+            import shutil
+            title, body = "Hermes", "Input nodig — agent wacht op prompt."
+            if shutil.which("notify-send"):
+                try:
+                    subprocess.run(
+                        ["notify-send", title, body],
+                        timeout=2, capture_output=True,
+                    )
+                    return
+                except Exception:
+                    pass
+            # Fallback: OSC 777 (Ghostty, iTerm2, WezTerm)
+            try:
+                sys.stdout.write(f"\033]777;notify;{title};{body}\007")
+                sys.stdout.flush()
+            except Exception:
+                pass
+
+        threading.Thread(target=_desktop_notify, daemon=True).start()
+
+    def _clear_input_needed_title(self) -> None:
+        """Restore terminal title when user starts typing."""
+        if self._input_needed_title_base:
+            try:
+                sys.stdout.write(f"\033]0;{self._input_needed_title_base}\007")
+                sys.stdout.flush()
+            except Exception:
+                pass
+
+    # ── End input-needed notifications ────────────────────────────────
 
     def _invalidate(self, min_interval: float = 0.25) -> None:
         """Throttled UI repaint — prevents terminal blinking on slow/SSH connections."""
@@ -1691,12 +1778,16 @@ class HermesCLI:
             agent_mode = snapshot.get("agent_mode", "build")
             mode_short = {"build": "⚡build", "ask": "💬ask", "analyse": "🔍analyse", "plan": "📋plan"}.get(agent_mode, agent_mode)
 
+            spinner = getattr(self, "_spinner_text", "") or ""
+            spin_frag = [("class:status-bar-think", f" [{spinner}]")] if spinner else []
+
             if width < 52:
                 frags = [
                     ("class:status-bar", " ⚕ "),
                     ("class:status-bar-strong", snapshot["model_short"]),
                     ("class:status-bar-dim", " · "),
                     ("class:status-bar-dim", duration_label),
+                ] + spin_frag + [
                     ("class:status-bar", " "),
                 ]
             else:
@@ -1714,6 +1805,7 @@ class HermesCLI:
                         (self._status_bar_context_style(percent), percent_label),
                         ("class:status-bar-dim", " · "),
                         ("class:status-bar-dim", duration_label),
+                    ] + spin_frag + [
                         ("class:status-bar", " "),
                     ]
                 else:
@@ -1740,6 +1832,7 @@ class HermesCLI:
                         (bar_style, percent_label),
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", duration_label),
+                    ] + spin_frag + [
                         ("class:status-bar", " "),
                     ]
 
@@ -4675,10 +4768,7 @@ class HermesCLI:
                 else:
                     _cprint("  (No response generated)")
 
-                # Play bell if enabled
-                if self.bell_on_complete:
-                    sys.stdout.write("\a")
-                    sys.stdout.flush()
+                self._notify_input_needed()
 
             except Exception as e:
                 # Same TUI refresh pattern as success path (#2718)
@@ -4797,9 +4887,7 @@ class HermesCLI:
                 else:
                     _cprint("  💬 /btw: (no response)")
 
-                if self.bell_on_complete:
-                    sys.stdout.write("\a")
-                    sys.stdout.flush()
+                self._notify_input_needed()
 
             except Exception as e:
                 if self._app:
@@ -6392,6 +6480,7 @@ class HermesCLI:
 
             def run_agent():
                 nonlocal result
+                self._clear_input_needed_title()
                 agent_message = _voice_prefix + message if _voice_prefix else message
                 try:
                     result = self.agent.run_conversation(
@@ -6594,11 +6683,8 @@ class HermesCLI:
                     ))
 
 
-            # Play terminal bell when agent finishes (if enabled).
-            # Works over SSH — the bell propagates to the user's terminal.
-            if self.bell_on_complete:
-                sys.stdout.write("\a")
-                sys.stdout.flush()
+            # Notify user that input is needed (bell + sound + desktop + title).
+            self._notify_input_needed()
 
             # Speak response aloud if voice TTS is enabled
             # Skip batch TTS when streaming TTS already handled it
@@ -7954,6 +8040,7 @@ class HermesCLI:
             'status-bar-warn': 'bg:#1a1a2e #FFD700 bold',
             'status-bar-bad': 'bg:#1a1a2e #FF8C00 bold',
             'status-bar-critical': 'bg:#1a1a2e #FF6B6B bold',
+            'status-bar-think': 'bg:#1a1a2e #87CEEB bold',
             # Bronze horizontal rules around the input area
             'input-rule': '#CD7F32',
             # Clipboard image attachment badges
