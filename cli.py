@@ -1392,14 +1392,18 @@ class HermesCLI:
     # Ported from Pi CLI input-needed.ts extension.
 
     def _notify_input_needed(self) -> None:
-        """Play bell, desktop sound, notify-send, and set terminal title."""
-        if not self.bell_on_complete:
-            return
+        """Always notify when the agent needs user input — unconditional, no config gate."""
 
-        # 1. Terminal bell
+        # 1. Terminal bell (via stderr — not intercepted by prompt_toolkit)
         try:
-            sys.stdout.write("\a")
-            sys.stdout.flush()
+            sys.stderr.write("\a")
+            sys.stderr.flush()
+        except Exception:
+            pass
+        # Also try prompt_toolkit's own bell if the app is running
+        try:
+            if self._app:
+                self._app.output.bell()
         except Exception:
             pass
 
