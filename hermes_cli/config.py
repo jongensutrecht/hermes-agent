@@ -567,10 +567,13 @@ DEFAULT_CONFIG = {
         "bell_on_complete": False,
         "show_reasoning": False,
         "streaming": False,
-        "final_response_markdown": "strip",  # render | strip | raw
+        "final_response_markdown": "render",  # render | strip | raw
         "inline_diffs": True,     # Show inline diff previews for write actions (write_file, patch, skill_manage)
         "show_cost": False,       # Show $ cost in the status bar (off by default)
         "skin": "default",
+        "input_needed_notifications": True,
+        "footer_elapsed_seconds": True,
+        "footer_thinking_badge": True,
         "user_message_preview": {  # CLI: how many submitted user-message lines to echo back in scrollback
             "first_lines": 2,
             "last_lines": 2,

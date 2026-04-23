@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -422,3 +423,66 @@ class TestStatusBarWidthSource:
         mock_get_app.assert_not_called()
         mock_shutil.assert_not_called()
         assert len(text) > 0
+
+
+class TestFooterLock:
+    def test_snapshot_duration_uses_session_start_not_task_elapsed(self):
+        cli_obj = _make_cli()
+        cli_obj._get_current_reasoning_label = lambda: "high"
+        cli_obj._agent_mode = "build"
+        cli_obj._prompt_start_time = None
+        cli_obj._prompt_duration = 11.0
+        cli_obj._task_start = datetime.now() - timedelta(seconds=11)
+        cli_obj._task_elapsed_frozen = 11.0
+
+        snapshot = cli_obj._get_status_bar_snapshot()
+
+        assert snapshot["duration"] != "11s"
+        assert snapshot["prompt_elapsed"] == "⏲ 11s"
+        assert snapshot["duration"] != snapshot["prompt_elapsed"]
+        assert "m" in snapshot["duration"]
+
+    def test_status_bar_fragments_show_input_needed_and_thinking_as_separate_items(self):
+        cli_obj = _attach_agent(
+            _make_cli(),
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            api_calls=1,
+            context_tokens=100,
+            context_length=32000,
+        )
+        cli_obj._status_bar_visible = True
+        cli_obj._model_picker_state = None
+        cli_obj._get_current_reasoning_label = lambda: "high"
+        cli_obj._agent_mode = "build"
+        cli_obj._input_needed_enabled = True
+        cli_obj._input_needed = True
+        cli_obj._footer_thinking_badge = True
+        cli_obj._agent_running = True
+        cli_obj._command_running = False
+        cli_obj._spinner_text = "thinking"
+        cli_obj._prompt_start_time = None
+        cli_obj._prompt_duration = 5.0
+        cli_obj._task_start = None
+        cli_obj._task_elapsed_frozen = None
+
+        with patch.object(HermesCLI, "_get_tui_terminal_width", return_value=160):
+            fragments = cli_obj._get_status_bar_fragments()
+        text = "".join(part for _, part in fragments)
+
+        assert "INPUT NODIG" in text
+        assert "thinking" in text
+        assert "●" in text
+
+    def test_footer_lock_patches_are_idempotent_on_canonical_files(self):
+        from hermes_cli.local_patches import (
+            _apply_footer_thinking_badge,
+            _apply_input_needed_footer_badge,
+            _apply_session_duration_counter,
+        )
+
+        project_root = Path(__file__).resolve().parents[2]
+        assert _apply_session_duration_counter(project_root / "cli.py") is False
+        assert _apply_footer_thinking_badge(project_root / "cli.py") is False
+        assert _apply_input_needed_footer_badge(project_root / "cli.py") is False
